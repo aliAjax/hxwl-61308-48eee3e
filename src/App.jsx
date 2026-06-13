@@ -1,6 +1,15 @@
 import { useMemo, useState } from 'react';
-import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus } from 'lucide-react';
+import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus, CarFront, User, Phone, Route, Pencil, Save, FolderKanban, FileStack } from 'lucide-react';
 import './App.css';
+
+const archiveConfig = {
+  storage: 'hxwl-61308-vehicle-driver-archive',
+  seed: [
+    { plate: '沪A89K21', driver: '郭师傅', phone: '13812345678', from: '舟山港', to: '上海江桥市场' },
+    { plate: '浙B72F50', driver: '陆师傅', phone: '13987654321', from: '宁波', to: '杭州农批' },
+    { plate: '苏E33L10', driver: '许师傅', phone: '13700001111', from: '上海洋山', to: '苏州冷库' },
+  ]
+};
 
 const appConfig = {
   "id": "hxwl-61308",
@@ -182,6 +191,18 @@ function loadRecords() {
   return withIds(appConfig.seed);
 }
 
+function loadArchives() {
+  const raw = localStorage.getItem(archiveConfig.storage);
+  if (raw) {
+    try {
+      return withIds(JSON.parse(raw));
+    } catch {
+      return withIds(archiveConfig.seed);
+    }
+  }
+  return withIds(archiveConfig.seed);
+}
+
 function avg(numbers) {
   const valid = numbers.filter((value) => Number.isFinite(value));
   if (!valid.length) return 0;
@@ -234,6 +255,57 @@ function App() {
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [batchForm, setBatchForm] = useState({ batchId: '', tempText: '' });
   const [batchError, setBatchError] = useState('');
+  const [archives, setArchives] = useState(loadArchives);
+  const [showArchivePanel, setShowArchivePanel] = useState(false);
+  const [archiveForm, setArchiveForm] = useState({ plate: '', driver: '', phone: '', from: '', to: '' });
+  const [editingArchiveId, setEditingArchiveId] = useState(null);
+  const [archiveQuery, setArchiveQuery] = useState('');
+
+  function persistArchives(next) {
+    setArchives(next);
+    const clean = next.map(({ id, timeline, ...rest }) => rest);
+    localStorage.setItem(archiveConfig.storage, JSON.stringify(clean));
+  }
+
+  function addArchive(event) {
+    event.preventDefault();
+    if (!archiveForm.plate || !archiveForm.driver) return;
+
+    if (editingArchiveId) {
+      const next = archives.map((item) => item.id === editingArchiveId ? { ...item, ...archiveForm } : item);
+      persistArchives(next);
+      setEditingArchiveId(null);
+    } else {
+      const nextArchive = { id: uid(), ...archiveForm };
+      persistArchives([nextArchive, ...archives]);
+    }
+    setArchiveForm({ plate: '', driver: '', phone: '', from: '', to: '' });
+  }
+
+  function editArchive(item) {
+    setEditingArchiveId(item.id);
+    setArchiveForm({ plate: item.plate, driver: item.driver, phone: item.phone || '', from: item.from || '', to: item.to || '' });
+  }
+
+  function cancelEditArchive() {
+    setEditingArchiveId(null);
+    setArchiveForm({ plate: '', driver: '', phone: '', from: '', to: '' });
+  }
+
+  function removeArchive(id) {
+    persistArchives(archives.filter((item) => item.id !== id));
+    if (editingArchiveId === id) cancelEditArchive();
+  }
+
+  function selectArchiveForForm(item) {
+    setForm({
+      ...form,
+      plate: item.plate || '',
+      driver: item.driver || '',
+      from: item.from || '',
+      to: item.to || '',
+    });
+  }
 
   function persist(next) {
     setRecords(next);
@@ -412,6 +484,10 @@ function App() {
     { label: "运输中", value: records.filter((item) => item.status === '运输中').length },
   ];
 
+  const filteredArchives = useMemo(() => {
+    return archives.filter((item) => !archiveQuery || `${item.plate}${item.driver}${item.phone}${item.from}${item.to}`.includes(archiveQuery));
+  }, [archives, archiveQuery]);
+
   const groupedByDate = useMemo(() => {
     return filteredRecords.reduce((acc, item) => {
       const key = item[appConfig.dateKey] || item.date || item.enrollDate || '未排期';
@@ -436,11 +512,98 @@ function App() {
           <h1>{appConfig.title}</h1>
           <p>{appConfig.subtitle}</p>
         </div>
-        <div className="port-card">
-          <span>Local Port</span>
-          <strong>{appConfig.port}</strong>
+        <div className="hero-actions">
+          <button type="button" className="archive-toggle-btn" onClick={() => setShowArchivePanel(!showArchivePanel)}>
+            <FolderKanban size={18} />
+            {showArchivePanel ? '关闭档案管理' : '司机与车辆档案'}
+          </button>
+          <div className="port-card">
+            <span>Local Port</span>
+            <strong>{appConfig.port}</strong>
+          </div>
         </div>
       </section>
+
+      {showArchivePanel && (
+        <section className="panel archive-panel">
+          <div className="panel-title">
+            <FolderKanban size={18} />
+            <h2>司机与车辆档案管理</h2>
+            <span className="archive-count">共 {archives.length} 条档案</span>
+          </div>
+          <div className="archive-layout">
+            <form className="archive-form" onSubmit={addArchive}>
+              <div className="panel-title small">
+                {editingArchiveId ? <><Pencil size={16} /><h3>编辑档案</h3></> : <><Plus size={16} /><h3>新增档案</h3></>}
+              </div>
+              <div className="form-grid">
+                <label>
+                  <span><CarFront size={14} /> 车牌</span>
+                  <input type="text" value={archiveForm.plate} onChange={(e) => setArchiveForm({ ...archiveForm, plate: e.target.value })} placeholder="沪A89K21" required />
+                </label>
+                <label>
+                  <span><User size={14} /> 司机姓名</span>
+                  <input type="text" value={archiveForm.driver} onChange={(e) => setArchiveForm({ ...archiveForm, driver: e.target.value })} placeholder="郭师傅" required />
+                </label>
+                <label>
+                  <span><Phone size={14} /> 联系电话</span>
+                  <input type="text" value={archiveForm.phone} onChange={(e) => setArchiveForm({ ...archiveForm, phone: e.target.value })} placeholder="13812345678" />
+                </label>
+                <label>
+                  <span><Route size={14} /> 常跑出发地</span>
+                  <input type="text" value={archiveForm.from} onChange={(e) => setArchiveForm({ ...archiveForm, from: e.target.value })} placeholder="舟山港" />
+                </label>
+                <label className="wide">
+                  <span><Route size={14} /> 常跑目的地</span>
+                  <input type="text" value={archiveForm.to} onChange={(e) => setArchiveForm({ ...archiveForm, to: e.target.value })} placeholder="上海江桥市场" />
+                </label>
+              </div>
+              <div className="archive-form-actions">
+                <button type="submit" className="primary">
+                  <Save size={16} />{editingArchiveId ? '保存修改' : '新增档案'}
+                </button>
+                {editingArchiveId && (
+                  <button type="button" className="cancel-btn" onClick={cancelEditArchive}>取消编辑</button>
+                )}
+              </div>
+            </form>
+
+            <div className="archive-list-wrap">
+              <div className="toolbar">
+                <div className="search">
+                  <Search size={16} />
+                  <input value={archiveQuery} onChange={(e) => setArchiveQuery(e.target.value)} placeholder="搜索车牌/司机/线路..." />
+                </div>
+              </div>
+              <div className="archive-list">
+                {filteredArchives.length === 0 ? (
+                  <p className="empty">暂无档案数据</p>
+                ) : (
+                  filteredArchives.map((item) => (
+                    <div className="archive-card" key={item.id}>
+                      <div className="archive-card-head">
+                        <div>
+                          <strong className="archive-plate">{item.plate}</strong>
+                          <span className="archive-driver"><User size={13} /> {item.driver}</span>
+                        </div>
+                        <div className="archive-card-actions">
+                          <button type="button" className="archive-use-btn" onClick={() => selectArchiveForForm(item)} title="用于新增记录"><FileStack size={14} />使用</button>
+                          <button type="button" onClick={() => editArchive(item)} title="编辑"><Pencil size={14} /></button>
+                          <button type="button" className="ghost-danger" onClick={() => removeArchive(item.id)} title="删除"><Trash2 size={14} /></button>
+                        </div>
+                      </div>
+                      <div className="archive-card-meta">
+                        {item.phone && <span><Phone size={12} /> {item.phone}</span>}
+                        {item.from && item.to && <span><Route size={12} /> {item.from} → {item.to}</span>}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="metrics">
         {metrics.map((metric) => (
@@ -456,6 +619,26 @@ function App() {
           <div className="panel-title">
             <ClipboardList size={18} />
             <h2>新增记录</h2>
+          </div>
+          <div className="archive-select-wrap">
+            <label className="wide">
+              <span><FolderKanban size={14} /> 从档案快速选择（可选）</span>
+              <select
+                value=""
+                onChange={(e) => {
+                  const item = archives.find((a) => a.id === e.target.value);
+                  if (item) selectArchiveForForm(item);
+                }}
+              >
+                <option value="">手动输入或选择档案...</option>
+                {archives.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.plate} · {item.driver}{item.from && item.to ? ` · ${item.from}→${item.to}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="hint small">选择档案将自动回填车牌、司机、出发地和目的地，也可手动修改任意字段。</p>
           </div>
           <div className="form-grid">
             {appConfig.fields.map((field) => (
