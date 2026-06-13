@@ -249,26 +249,68 @@ const HOT_THRESHOLD = 2;
 
 function downsample(data, maxPoints) {
   if (data.length <= maxPoints) return data.map((v, i) => ({ idx: i, value: v }));
-  const bucketSize = data.length / maxPoints;
-  const result = [];
-  for (let i = 0; i < maxPoints; i++) {
+  const HOT_MAX_RATIO = 0.35;
+  const maxHotPoints = Math.max(4, Math.floor(maxPoints * HOT_MAX_RATIO));
+  const minIndexGap = Math.max(2, Math.floor(data.length / maxPoints * 0.8));
+  const allHotPoints = [];
+  for (let i = 0; i < data.length; i++) {
+    if (data[i] > HOT_THRESHOLD) allHotPoints.push({ idx: i, value: data[i] });
+  }
+  allHotPoints.sort((a, b) => b.value - a.value);
+  const hotKept = [];
+  for (const p of allHotPoints) {
+    if (hotKept.length >= maxHotPoints) break;
+    let overlap = false;
+    for (const k of hotKept) {
+      if (Math.abs(k.idx - p.idx) < minIndexGap) { overlap = true; break; }
+    }
+    if (!overlap) hotKept.push(p);
+  }
+  hotKept.sort((a, b) => a.idx - b.idx);
+  const hotIdxSet = new Set(hotKept.map(p => p.idx));
+  const remaining = maxPoints - hotKept.length;
+  const bucketSize = data.length / remaining;
+  const picked = [];
+  for (let i = 0; i < remaining; i++) {
     const start = Math.floor(i * bucketSize);
     const end = Math.min(Math.floor((i + 1) * bucketSize), data.length);
-    let min = Infinity, max = -Infinity, minIdx = start, maxIdx = start;
-    for (let j = start; j < end; j++) {
-      if (data[j] < min) { min = data[j]; minIdx = j; }
-      if (data[j] > max) { max = data[j]; maxIdx = j; }
+    if (start >= end) continue;
+    const bucketData = [];
+    for (let j = start; j < end; j++) bucketData.push({ idx: j, value: data[j] });
+    let best = null, bestScore = -Infinity;
+    const bucketAvg = bucketData.reduce((s, p) => s + p.value, 0) / bucketData.length;
+    for (const p of bucketData) {
+      if (hotIdxSet.has(p.idx)) continue;
+      const distFromAvg = Math.abs(p.value - bucketAvg);
+      const edgeBonus = (p.idx === start || p.idx === end - 1) ? 0.5 : 0;
+      const score = distFromAvg + edgeBonus;
+      if (score > bestScore) { bestScore = score; best = p; }
     }
-    if (i % 2 === 0) {
-      result.push({ idx: minIdx, value: min });
-      result.push({ idx: maxIdx, value: max });
-    } else {
-      result.push({ idx: maxIdx, value: max });
-      result.push({ idx: minIdx, value: min });
-    }
+    if (best) picked.push(best);
   }
+  let result = [...hotKept, ...picked];
   result.sort((a, b) => a.idx - b.idx);
-  return result;
+  const finalResult = [];
+  for (let i = 0; i < result.length; i++) {
+    const p = result[i];
+    const isHot = hotIdxSet.has(p.idx);
+    let conflict = -1;
+    for (let k = finalResult.length - 1; k >= 0; k--) {
+      if (Math.abs(finalResult[k].idx - p.idx) < minIndexGap) {
+        conflict = k;
+        break;
+      }
+      if (p.idx - finalResult[k].idx > minIndexGap * 3) break;
+    }
+    if (conflict >= 0) {
+      if (isHot && !hotIdxSet.has(finalResult[conflict].idx)) {
+        finalResult[conflict] = p;
+      }
+      continue;
+    }
+    finalResult.push(p);
+  }
+  return finalResult;
 }
 
 function getTrend(temps) {
@@ -296,7 +338,7 @@ function TemperatureCurveDetail({ temps }) {
     return { max, min, avg, hotCount, trend };
   }, [numbers]);
 
-  const sampled = useMemo(() => downsample(numbers, 80), [numbers]);
+  const sampled = useMemo(() => downsample(numbers, 60), [numbers]);
 
   const chartW = 560;
   const chartH = 200;
@@ -437,24 +479,57 @@ function TemperatureCurveDetail({ temps }) {
             />
           )}
 
-          {sampled.map((p, i) => {
-            const isHot = p.value > HOT_THRESHOLD;
-            const x = xToPx(i, sampled.length);
-            const y = yToPx(p.value);
-            return (
-              <g key={`${p.idx}-${i}`}>
-                <circle
-                  cx={x}
-                  cy={y}
-                  r={isHot ? 4 : 2.5}
-                  fill={isHot ? '#dc2626' : 'var(--accent)'}
-                  stroke="#fff"
-                  strokeWidth="1.5"
-                />
-                <title>第{p.idx + 1}次读数：{p.value.toFixed(1)}℃{isHot ? '（超温）' : ''}</title>
-              </g>
-            );
-          })}
+          {(() => {
+            const MIN_DISTANCE = 9;
+            const lastRendered = [];
+            const circles = [];
+            for (let i = 0; i < sampled.length; i++) {
+              const p = sampled[i];
+              const isHot = p.value > HOT_THRESHOLD;
+              const x = xToPx(i, sampled.length);
+              const y = yToPx(p.value);
+              let tooClose = false;
+              for (let k = lastRendered.length - 1; k >= 0; k--) {
+                const dx = x - lastRendered[k].x;
+                const dy = y - lastRendered[k].y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < MIN_DISTANCE) {
+                  if (isHot && !lastRendered[k].isHot) {
+                    lastRendered.splice(k, 1);
+                    circles.splice(k, 1);
+                    continue;
+                  }
+                  tooClose = true;
+                  break;
+                }
+                if (dx > 20) break;
+              }
+              if (tooClose && !isHot) continue;
+              let r = isHot ? 4 : 2.5;
+              if (isHot && lastRendered.length > 0) {
+                const last = lastRendered[lastRendered.length - 1];
+                const dx = x - last.x;
+                const dy = y - last.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < MIN_DISTANCE + 2) r = 3;
+              }
+              lastRendered.push({ x, y, isHot });
+              circles.push(
+                <g key={`${p.idx}-${i}`}>
+                  <circle
+                    cx={x}
+                    cy={y}
+                    r={r}
+                    fill={isHot ? '#dc2626' : 'var(--accent)'}
+                    stroke="#fff"
+                    strokeWidth="1.5"
+                  />
+                  <title>第{p.idx + 1}次读数：{p.value.toFixed(1)}℃{isHot ? '（超温）' : ''}</title>
+                </g>
+              );
+            }
+            return circles;
+          })()}
 
           {numbers.length > 0 && (
             <text x={padL} y={chartH - 8} fontSize="11" fill="#667085">
