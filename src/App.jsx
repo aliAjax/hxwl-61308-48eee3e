@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from 'react';
-import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus, CarFront, User, Phone, Route, Pencil, Save, FolderKanban, FileStack, TrendingUp, TrendingDown, Minus, ArrowUp, ArrowDown, Download, Upload, FileJson } from 'lucide-react';
+import { useMemo, useRef, useState, useEffect } from 'react';
+import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus, CarFront, User, Phone, Route, Pencil, Save, FolderKanban, FileStack, TrendingUp, TrendingDown, Minus, ArrowUp, ArrowDown, Download, Upload, FileJson, ChevronDown, Layers, Settings, LogOut } from 'lucide-react';
+import { useWorkspace, getStorageKeys } from './hooks/useWorkspace';
 import './App.css';
 
 const archiveConfig = {
@@ -600,8 +601,64 @@ function TemperatureCurveDetail({ temps }) {
   );
 }
 
+function loadRecordsFor(keys) {
+  if (!keys) return withIds(appConfig.seed);
+  const raw = localStorage.getItem(keys.records);
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return withIds(appConfig.seed);
+    }
+  }
+  return withIds(appConfig.seed);
+}
+
+function loadArchivesFor(keys) {
+  if (!keys) return withIds(archiveConfig.seed);
+  const raw = localStorage.getItem(keys.archives);
+  if (raw) {
+    try {
+      return withIds(JSON.parse(raw));
+    } catch {
+      return withIds(archiveConfig.seed);
+    }
+  }
+  return withIds(archiveConfig.seed);
+}
+
+function loadExceptionsFor(keys) {
+  if (!keys) return withIds(exceptionConfig.seed);
+  const raw = localStorage.getItem(keys.exceptions);
+  if (raw) {
+    try {
+      return withIds(JSON.parse(raw));
+    } catch {
+      return withIds(exceptionConfig.seed);
+    }
+  }
+  return withIds(exceptionConfig.seed);
+}
+
 function App() {
-  const [records, setRecords] = useState(loadRecords);
+  const workspace = useWorkspace();
+  const { workspaces, currentWorkspace, currentWorkspaceId, storageKeys, switchWorkspace, createWorkspace, renameWorkspace, deleteWorkspace, exportWorkspace, importWorkspace } = workspace;
+
+  const [records, setRecords] = useState(() => storageKeys ? loadRecordsFor(storageKeys) : withIds(appConfig.seed));
+  const [archives, setArchives] = useState(() => storageKeys ? loadArchivesFor(storageKeys) : withIds(archiveConfig.seed));
+  const [exceptions, setExceptions] = useState(() => storageKeys ? loadExceptionsFor(storageKeys) : withIds(exceptionConfig.seed));
+
+  useEffect(() => {
+    if (!currentWorkspaceId) return;
+    const keys = getStorageKeys(currentWorkspaceId);
+    setRecords(loadRecordsFor(keys));
+    setArchives(loadArchivesFor(keys));
+    setExceptions(loadExceptionsFor(keys));
+    setSelected(null);
+    setSelectedRoute(null);
+    setConfirmTarget(null);
+  }, [currentWorkspaceId]);
+
   const [form, setForm] = useState(appConfig.defaultValues);
   const [filters, setFilters] = useState({ query: '', status: '全部' });
   const [selected, setSelected] = useState(null);
@@ -610,7 +667,6 @@ function App() {
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [batchForm, setBatchForm] = useState({ batchId: '', tempText: '' });
   const [batchError, setBatchError] = useState('');
-  const [archives, setArchives] = useState(loadArchives);
   const [showArchivePanel, setShowArchivePanel] = useState(false);
   const [archiveForm, setArchiveForm] = useState({ plate: '', driver: '', phone: '', from: '', to: '' });
   const [editingArchiveId, setEditingArchiveId] = useState(null);
@@ -620,7 +676,6 @@ function App() {
   const [importValidation, setImportValidation] = useState([]);
   const [importFileName, setImportFileName] = useState('');
   const fileInputRef = useRef(null);
-  const [exceptions, setExceptions] = useState(loadExceptions);
   const [showExceptionPanel, setShowExceptionPanel] = useState(false);
   const [showExceptionModal, setShowExceptionModal] = useState(false);
   const [exceptionForm, setExceptionForm] = useState({
@@ -634,17 +689,34 @@ function App() {
   const [editingExceptionId, setEditingExceptionId] = useState(null);
   const [exceptionQuery, setExceptionQuery] = useState('');
   const [filterHasException, setFilterHasException] = useState(false);
+  const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
+  const [showWorkspaceModal, setShowWorkspaceModal] = useState(null);
+  const [workspaceForm, setWorkspaceForm] = useState({ name: '' });
+  const [editingWorkspaceId, setEditingWorkspaceId] = useState(null);
+  const [showWsImportModal, setShowWsImportModal] = useState(false);
+  const wsImportInputRef = useRef(null);
+  const workspaceMenuRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (workspaceMenuRef.current && !workspaceMenuRef.current.contains(event.target)) {
+        setShowWorkspaceMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   function persistArchives(next) {
     setArchives(next);
     const clean = next.map(({ id, timeline, ...rest }) => rest);
-    localStorage.setItem(archiveConfig.storage, JSON.stringify(clean));
+    if (storageKeys) localStorage.setItem(storageKeys.archives, JSON.stringify(clean));
   }
 
   function persistExceptions(next) {
     setExceptions(next);
     const clean = next.map(({ id, timeline, ...rest }) => rest);
-    localStorage.setItem(exceptionConfig.storage, JSON.stringify(clean));
+    if (storageKeys) localStorage.setItem(storageKeys.exceptions, JSON.stringify(clean));
   }
 
   function getBatchLabel(record) {
@@ -768,7 +840,7 @@ function App() {
 
   function persist(next) {
     setRecords(next);
-    localStorage.setItem(appConfig.storage, JSON.stringify(next));
+    if (storageKeys) localStorage.setItem(storageKeys.records, JSON.stringify(next));
   }
 
   function validateRecord(item, index) {
@@ -881,6 +953,108 @@ function App() {
     const merged = [...validItems, ...records];
     persist(merged);
     resetImportState();
+  }
+
+  function openCreateWorkspace() {
+    setWorkspaceForm({ name: '' });
+    setEditingWorkspaceId(null);
+    setShowWorkspaceModal('create');
+  }
+
+  function openRenameWorkspace(ws) {
+    setWorkspaceForm({ name: ws.name });
+    setEditingWorkspaceId(ws.id);
+    setShowWorkspaceModal('rename');
+  }
+
+  function submitWorkspaceForm(event) {
+    event.preventDefault();
+    const name = workspaceForm.name.trim();
+    if (!name) {
+      alert('请输入工作区名称');
+      return;
+    }
+    if (showWorkspaceModal === 'create') {
+      const created = createWorkspace(name);
+      if (!created) {
+        alert('创建失败，名称可能已存在');
+        return;
+      }
+    } else if (showWorkspaceModal === 'rename' && editingWorkspaceId) {
+      const ok = renameWorkspace(editingWorkspaceId, name);
+      if (!ok) {
+        alert('重命名失败，名称可能已存在');
+        return;
+      }
+    }
+    setShowWorkspaceModal(null);
+    setWorkspaceForm({ name: '' });
+    setEditingWorkspaceId(null);
+  }
+
+  function handleDeleteWorkspace(ws) {
+    if (ws.isDefault) {
+      alert('默认工作区无法删除');
+      return;
+    }
+    if (workspaces.length <= 1) {
+      alert('至少保留一个工作区');
+      return;
+    }
+    if (!confirm(`确定要删除工作区"${ws.name}"吗？该工作区下的所有数据将被永久删除。`)) return;
+    deleteWorkspace(ws.id);
+  }
+
+  function handleExportWorkspace(ws) {
+    const data = exportWorkspace(ws.id);
+    if (!data) return;
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    link.download = `工作区-${ws.name}-${dateStr}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function triggerWsImport() {
+    wsImportInputRef.current?.click();
+  }
+
+  function handleWsImportFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result;
+        const parsed = JSON.parse(content);
+        if (!parsed || typeof parsed !== 'object') {
+          alert('无效的工作区数据文件');
+          return;
+        }
+        const result = importWorkspace(parsed, true);
+        if (result) {
+          alert(`已成功导入工作区"${result.name}"`);
+          switchWorkspace(result.id);
+        } else {
+          alert('导入失败');
+        }
+      } catch (err) {
+        alert('文件解析失败：' + (err instanceof Error ? err.message : '无效的JSON格式'));
+      } finally {
+        if (wsImportInputRef.current) wsImportInputRef.current.value = '';
+      }
+    };
+    reader.onerror = () => {
+      alert('文件读取失败');
+      if (wsImportInputRef.current) wsImportInputRef.current.value = '';
+    };
+    reader.readAsText(file);
   }
 
   function addRecord(event) {
@@ -1122,6 +1296,80 @@ function App() {
           <div className="eyebrow"><ThermometerSnowflake size={18} />{appConfig.domain}</div>
           <h1>{appConfig.title}</h1>
           <p>{appConfig.subtitle}</p>
+          {currentWorkspace && (
+            <div className="workspace-switcher" ref={workspaceMenuRef}>
+              <button
+                type="button"
+                className="workspace-switch-btn"
+                onClick={() => setShowWorkspaceMenu(!showWorkspaceMenu)}
+              >
+                <Layers size={16} />
+                <span className="workspace-current-label">工作区：</span>
+                <strong className="workspace-current-name">{currentWorkspace.name}</strong>
+                {currentWorkspace.isDefault && <span className="workspace-badge">默认</span>}
+                <ChevronDown size={16} className={'workspace-chevron ' + (showWorkspaceMenu ? 'open' : '')} />
+              </button>
+              {showWorkspaceMenu && (
+                <div className="workspace-dropdown">
+                  <div className="workspace-dropdown-header">
+                    <span>切换工作区</span>
+                    <span className="workspace-count">{workspaces.length} 个</span>
+                  </div>
+                  <div className="workspace-list">
+                    {workspaces.map((ws) => (
+                      <div
+                        key={ws.id}
+                        className={'workspace-item ' + (ws.id === currentWorkspaceId ? 'active' : '')}
+                      >
+                        <button
+                          type="button"
+                          className="workspace-item-main"
+                          onClick={() => {
+                            switchWorkspace(ws.id);
+                            setShowWorkspaceMenu(false);
+                            setSelected(null);
+                          }}
+                        >
+                          <Layers size={14} />
+                          <span className="workspace-item-name">{ws.name}</span>
+                          {ws.isDefault && <span className="workspace-item-badge">默认</span>}
+                          {ws.id === currentWorkspaceId && <CheckCircle2 size={14} className="workspace-check" />}
+                        </button>
+                        <div className="workspace-item-actions">
+                          <button type="button" title="重命名" onClick={() => { openRenameWorkspace(ws); setShowWorkspaceMenu(false); }}>
+                            <Pencil size={12} />
+                          </button>
+                          <button type="button" title="导出工作区" onClick={() => { handleExportWorkspace(ws); setShowWorkspaceMenu(false); }}>
+                            <Download size={12} />
+                          </button>
+                          {!ws.isDefault && workspaces.length > 1 && (
+                            <button type="button" className="ghost-danger" title="删除" onClick={() => { handleDeleteWorkspace(ws); setShowWorkspaceMenu(false); }}>
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="workspace-dropdown-footer">
+                    <button type="button" onClick={() => { openCreateWorkspace(); setShowWorkspaceMenu(false); }}>
+                      <Plus size={14} /> 新建工作区
+                    </button>
+                    <button type="button" onClick={() => { triggerWsImport(); setShowWorkspaceMenu(false); }}>
+                      <Upload size={14} /> 导入工作区
+                    </button>
+                    <input
+                      type="file"
+                      ref={wsImportInputRef}
+                      style={{ display: 'none' }}
+                      accept=".json,application/json"
+                      onChange={handleWsImportFile}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="hero-actions">
           <div className="io-buttons">
@@ -1845,6 +2093,44 @@ function App() {
               <button type="button" className="cancel-btn" onClick={() => setShowExceptionModal(false)}>取消</button>
               <button type="submit" className="primary confirm-submit">
                 <Save size={18} />{editingExceptionId ? '保存修改' : '提交登记'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showWorkspaceModal && (
+        <div className="overlay" onClick={() => setShowWorkspaceModal(null)}>
+          <form className="workspace-modal" onClick={(e) => e.stopPropagation()} onSubmit={submitWorkspaceForm}>
+            <div className="confirm-header">
+              <div className="confirm-title">
+                <Layers size={18} />
+                <h2>{showWorkspaceModal === 'create' ? '新建工作区' : '重命名工作区'}</h2>
+              </div>
+              <button type="button" className="close-btn" onClick={() => setShowWorkspaceModal(null)}><X size={18} /></button>
+            </div>
+            <div className="workspace-modal-fields">
+              <label className="wide">
+                <span>工作区名称</span>
+                <input
+                  type="text"
+                  value={workspaceForm.name}
+                  onChange={(e) => setWorkspaceForm({ ...workspaceForm, name: e.target.value })}
+                  placeholder="例如：上海仓库、华东运营组"
+                  autoFocus
+                  required
+                />
+              </label>
+              <p className="hint small">
+                {showWorkspaceModal === 'create'
+                  ? '新建的工作区将拥有独立的运输批次、车辆档案、告警记录和交接异常数据。'
+                  : '重命名仅修改显示名称，不会影响工作区中的数据。'}
+              </p>
+            </div>
+            <div className="confirm-actions">
+              <button type="button" className="cancel-btn" onClick={() => setShowWorkspaceModal(null)}>取消</button>
+              <button type="submit" className="primary confirm-submit">
+                <Save size={18} />{showWorkspaceModal === 'create' ? '创建工作区' : '保存修改'}
               </button>
             </div>
           </form>
