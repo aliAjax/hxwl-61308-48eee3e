@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus, CarFront, User, Phone, Route, Pencil, Save, FolderKanban, FileStack } from 'lucide-react';
+import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus, CarFront, User, Phone, Route, Pencil, Save, FolderKanban, FileStack, TrendingUp, TrendingDown, Minus, ArrowUp, ArrowDown } from 'lucide-react';
 import './App.css';
 
 const archiveConfig = {
@@ -243,6 +243,264 @@ function hasOverlap(target, records) {
 function statusClass(status) {
   const index = appConfig.statuses.indexOf(status);
   return ['status-a', 'status-b', 'status-c', 'status-d'][index] || 'status-a';
+}
+
+const HOT_THRESHOLD = 2;
+
+function downsample(data, maxPoints) {
+  if (data.length <= maxPoints) {
+    return data.map((v, i) => ({ idx: i, value: v }));
+  }
+  const selected = new Set();
+  selected.add(0);
+  selected.add(data.length - 1);
+  const bucketSize = (data.length - 2) / (maxPoints - 2);
+  for (let i = 0; i < maxPoints - 2; i++) {
+    const start = Math.floor(i * bucketSize) + 1;
+    const end = Math.min(Math.floor((i + 1) * bucketSize) + 1, data.length - 1);
+    let min = Infinity, max = -Infinity, minIdx = start, maxIdx = start;
+    for (let j = start; j < end; j++) {
+      if (data[j] < min) { min = data[j]; minIdx = j; }
+      if (data[j] > max) { max = data[j]; maxIdx = j; }
+    }
+    selected.add(minIdx);
+    selected.add(maxIdx);
+    const midIdx = Math.floor((start + end) / 2);
+    selected.add(midIdx);
+  }
+  const result = Array.from(selected)
+    .sort((a, b) => a - b)
+    .map((idx) => ({ idx, value: data[idx] }));
+  if (result.length > maxPoints * 1.5) {
+    return downsample(result.map((p) => p.value), maxPoints).map((p, i) => ({
+      idx: result[p.idx].idx,
+      value: result[p.idx].value
+    }));
+  }
+  return result;
+}
+
+function getTrend(temps) {
+  if (temps.length < 2) return { type: 'stable', label: '数据不足', diff: 0 };
+  const recent = temps.slice(-Math.min(5, temps.length));
+  const first = recent[0];
+  const last = recent[recent.length - 1];
+  const diff = last - first;
+  if (Math.abs(diff) < 0.3) return { type: 'stable', label: '基本稳定', diff };
+  if (diff > 0) return { type: 'up', label: '呈上升趋势', diff };
+  return { type: 'down', label: '呈下降趋势', diff };
+}
+
+function TemperatureCurveDetail({ temps }) {
+  const numbers = (temps || []).map(Number).filter(Number.isFinite);
+  const stats = useMemo(() => {
+    if (numbers.length === 0) {
+      return { max: 0, min: 0, avg: 0, hotCount: 0, trend: { type: 'stable', label: '暂无数据', diff: 0 } };
+    }
+    const max = Math.max(...numbers);
+    const min = Math.min(...numbers);
+    const avg = numbers.reduce((s, v) => s + v, 0) / numbers.length;
+    const hotCount = numbers.filter(v => v > HOT_THRESHOLD).length;
+    const trend = getTrend(numbers);
+    return { max, min, avg, hotCount, trend };
+  }, [numbers]);
+
+  const sampled = useMemo(() => downsample(numbers, 80), [numbers]);
+
+  const chartW = 560;
+  const chartH = 200;
+  const padL = 44, padR = 16, padT = 20, padB = 28;
+  const plotW = chartW - padL - padR;
+  const plotH = chartH - padT - padB;
+
+  const yMin = Math.min(-3, Math.floor(stats.min) - 1);
+  const yMax = Math.max(HOT_THRESHOLD + 2, Math.ceil(stats.max) + 1);
+  const yRange = yMax - yMin;
+
+  function yToPx(v) {
+    return padT + plotH - ((v - yMin) / yRange) * plotH;
+  }
+  function xToPx(i, total) {
+    if (total <= 1) return padL + plotW / 2;
+    return padL + (i / (total - 1)) * plotW;
+  }
+
+  const yTicks = [];
+  const yStep = Math.max(1, Math.ceil(yRange / 5));
+  for (let v = Math.ceil(yMin / yStep) * yStep; v <= yMax; v += yStep) {
+    yTicks.push(v);
+  }
+
+  const pathD = sampled.length > 0
+    ? sampled.map((p, i) => {
+        const x = xToPx(i, sampled.length);
+        const y = yToPx(p.value);
+        return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ')
+    : '';
+
+  const areaD = sampled.length > 1
+    ? `${pathD} L${xToPx(sampled.length - 1, sampled.length).toFixed(1)},${yToPx(yMin).toFixed(1)} L${padL},${yToPx(yMin).toFixed(1)} Z`
+    : '';
+
+  const trendIcon = stats.trend.type === 'up'
+    ? <TrendingUp size={14} className="trend-icon up" />
+    : stats.trend.type === 'down'
+      ? <TrendingDown size={14} className="trend-icon down" />
+      : <Minus size={14} className="trend-icon stable" />;
+
+  return (
+    <div className="temp-curve-detail">
+      <div className="temp-stats-grid">
+        <div className="temp-stat-card">
+          <div className="temp-stat-label">
+            <ArrowUp size={12} /> 最高温
+          </div>
+          <strong className="temp-stat-value">{stats.max.toFixed(1)}℃</strong>
+          {stats.max > HOT_THRESHOLD && <span className="temp-stat-tag hot">超温</span>}
+        </div>
+        <div className="temp-stat-card">
+          <div className="temp-stat-label">
+            <ArrowDown size={12} /> 最低温
+          </div>
+          <strong className="temp-stat-value">{stats.min.toFixed(1)}℃</strong>
+        </div>
+        <div className="temp-stat-card">
+          <div className="temp-stat-label">平均温</div>
+          <strong className="temp-stat-value">{stats.avg.toFixed(1)}℃</strong>
+          {stats.avg > HOT_THRESHOLD && <span className="temp-stat-tag hot">偏高</span>}
+        </div>
+        <div className="temp-stat-card">
+          <div className="temp-stat-label">超温点</div>
+          <strong className={'temp-stat-value ' + (stats.hotCount > 0 ? 'hot-value' : '')}>
+            {stats.hotCount}
+          </strong>
+          <span className="temp-stat-sub">阈值 {HOT_THRESHOLD}℃</span>
+        </div>
+      </div>
+
+      <div className="temp-trend-bar">
+        <div className="temp-trend-label">
+          {trendIcon}
+          <span>近期温度{stats.trend.label}</span>
+        </div>
+        {stats.trend.diff !== 0 && (
+          <span className={'temp-trend-diff ' + (stats.trend.diff > 0 ? 'up' : 'down')}>
+            {stats.trend.diff > 0 ? '+' : ''}{stats.trend.diff.toFixed(1)}℃
+          </span>
+        )}
+      </div>
+
+      <div className="temp-chart-wrap">
+        <svg viewBox={`0 0 ${chartW} ${chartH}`} className="temp-svg-chart" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <linearGradient id="tempAreaGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.25" />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+
+          {yTicks.filter(tick => Math.abs(tick - HOT_THRESHOLD) > 0.01).map(tick => (
+            <g key={tick}>
+              <line
+                x1={padL}
+                y1={yToPx(tick)}
+                x2={chartW - padR}
+                y2={yToPx(tick)}
+                stroke="#e5e7eb"
+                strokeDasharray="3 3"
+                strokeWidth="1"
+              />
+              <text x={padL - 8} y={yToPx(tick) + 4} textAnchor="end" fontSize="11" fill="#667085">
+                {tick}℃
+              </text>
+            </g>
+          ))}
+
+          {numbers.length > 0 && yMin <= HOT_THRESHOLD && HOT_THRESHOLD <= yMax && (
+            <>
+              <line
+                x1={padL}
+                y1={yToPx(HOT_THRESHOLD)}
+                x2={chartW - padR}
+                y2={yToPx(HOT_THRESHOLD)}
+                stroke="#dc2626"
+                strokeWidth="1.5"
+                strokeDasharray="6 4"
+              />
+              <text x={chartW - padR - 4} y={yToPx(HOT_THRESHOLD) - 6} textAnchor="end" fontSize="11" fill="#dc2626" fontWeight="700">
+                超温阈值 {HOT_THRESHOLD}℃
+              </text>
+              <text x={padL - 8} y={yToPx(HOT_THRESHOLD) + 4} textAnchor="end" fontSize="11" fill="#dc2626" fontWeight="600">
+                {HOT_THRESHOLD}℃
+              </text>
+            </>
+          )}
+
+          {areaD && <path d={areaD} fill="url(#tempAreaGrad)" />}
+          {pathD && (
+            <path
+              d={pathD}
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth="2.2"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          )}
+
+          {sampled.map((p, i) => {
+            const isHot = p.value > HOT_THRESHOLD;
+            const x = xToPx(i, sampled.length);
+            const y = yToPx(p.value);
+            return (
+              <g key={`${p.idx}-${i}`}>
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={isHot ? 4 : 2.5}
+                  fill={isHot ? '#dc2626' : 'var(--accent)'}
+                  stroke="#fff"
+                  strokeWidth="1.5"
+                />
+                <title>第{p.idx + 1}次读数：{p.value.toFixed(1)}℃{isHot ? '（超温）' : ''}</title>
+              </g>
+            );
+          })}
+
+          {numbers.length > 0 && (
+            <text x={padL} y={chartH - 8} fontSize="11" fill="#667085">
+              共 {numbers.length} 个读数{sampled.length !== numbers.length ? `（显示 ${sampled.length} 个采样点）` : ''}
+            </text>
+          )}
+        </svg>
+      </div>
+
+      <div className="temp-readings">
+        <div className="temp-readings-title">
+          <strong>温度读数序列</strong>
+          <span className="temp-readings-count">共 {numbers.length} 条</span>
+        </div>
+        <div className="temp-readings-list">
+          {numbers.length === 0 ? (
+            <p className="empty">暂无温度读数</p>
+          ) : (
+            numbers.map((v, i) => (
+              <span
+                key={i}
+                className={'temp-reading-chip ' + (v > HOT_THRESHOLD ? 'hot' : '')}
+                title={`第${i + 1}次读数`}
+              >
+                <em>#{i + 1}</em>
+                <b>{v.toFixed(1)}℃</b>
+                {v > HOT_THRESHOLD && <AlertTriangle size={10} />}
+              </span>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function App() {
@@ -835,11 +1093,7 @@ function App() {
                   {selected.arrival.remark && <span>备注：{selected.arrival.remark}</span>}
                 </div>
               )}
-              {selected.temps && (
-                <div className="temp-chart">
-                  {selected.temps.map((value, index) => <i key={index} style={{ height: Math.max(10, 56 + Number(value) * 8) }} title={String(value)} />)}
-                </div>
-              )}
+              {selected.temps && <TemperatureCurveDetail temps={selected.temps} />}
               <div className="timeline">
                 {(selected.timeline || []).map((step, index) => (
                   <span key={index}>{step.at} · {step.status} · {step.by}{step.detail ? '｜' + step.detail : ''}</span>
