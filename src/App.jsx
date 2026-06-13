@@ -11,6 +11,15 @@ const archiveConfig = {
   ]
 };
 
+const exceptionConfig = {
+  storage: 'hxwl-61308-handover-exceptions',
+  problemTypes: ['包装破损', '货物破损', '延误送达', '温度异常', '温度争议', '数量短缺', '单据异常', '其他'],
+  responsibilityLinks: ['运输环节', '装卸环节', '仓储环节', '发货环节', '接收环节', '责任待确认'],
+  statuses: ['待处理', '处理中', '已解决', '已关闭'],
+  primaryStatus: '待处理',
+  seed: []
+};
+
 const appConfig = {
   "id": "hxwl-61308",
   "port": 61308,
@@ -201,6 +210,31 @@ function loadArchives() {
     }
   }
   return withIds(archiveConfig.seed);
+}
+
+function loadExceptions() {
+  const raw = localStorage.getItem(exceptionConfig.storage);
+  if (raw) {
+    try {
+      return withIds(JSON.parse(raw));
+    } catch {
+      return withIds(exceptionConfig.seed);
+    }
+  }
+  return withIds(exceptionConfig.seed);
+}
+
+function exceptionStatusClass(status) {
+  const index = exceptionConfig.statuses.indexOf(status);
+  return ['exception-status-a', 'exception-status-b', 'exception-status-c', 'exception-status-d'][index] || 'exception-status-a';
+}
+
+function getExceptionsForBatch(batchId, exceptions) {
+  return exceptions.filter((ex) => ex.batchId === batchId);
+}
+
+function hasUnprocessedException(batchId, exceptions) {
+  return exceptions.some((ex) => ex.batchId === batchId && (ex.status === '待处理' || ex.status === '处理中'));
 }
 
 function avg(numbers) {
@@ -586,11 +620,110 @@ function App() {
   const [importValidation, setImportValidation] = useState([]);
   const [importFileName, setImportFileName] = useState('');
   const fileInputRef = useRef(null);
+  const [exceptions, setExceptions] = useState(loadExceptions);
+  const [showExceptionPanel, setShowExceptionPanel] = useState(false);
+  const [showExceptionModal, setShowExceptionModal] = useState(false);
+  const [exceptionForm, setExceptionForm] = useState({
+    batchId: '',
+    problemType: exceptionConfig.problemTypes[0],
+    responsibility: exceptionConfig.responsibilityLinks[0],
+    description: '',
+    status: exceptionConfig.primaryStatus,
+    handler: ''
+  });
+  const [editingExceptionId, setEditingExceptionId] = useState(null);
+  const [exceptionQuery, setExceptionQuery] = useState('');
+  const [filterHasException, setFilterHasException] = useState(false);
 
   function persistArchives(next) {
     setArchives(next);
     const clean = next.map(({ id, timeline, ...rest }) => rest);
     localStorage.setItem(archiveConfig.storage, JSON.stringify(clean));
+  }
+
+  function persistExceptions(next) {
+    setExceptions(next);
+    const clean = next.map(({ id, timeline, ...rest }) => rest);
+    localStorage.setItem(exceptionConfig.storage, JSON.stringify(clean));
+  }
+
+  function getBatchLabel(record) {
+    return `${record.goods} · ${record.plate} · ${record.from}→${record.to}`;
+  }
+
+  function openExceptionModal(batchId = '') {
+    const availableBatches = records.filter((r) => r.status === '已到达' || r.status === '异常');
+    const defaultBatchId = batchId || (availableBatches[0]?.id || '');
+    setExceptionForm({
+      batchId: defaultBatchId,
+      problemType: exceptionConfig.problemTypes[0],
+      responsibility: exceptionConfig.responsibilityLinks[0],
+      description: '',
+      status: exceptionConfig.primaryStatus,
+      handler: ''
+    });
+    setEditingExceptionId(null);
+    setShowExceptionModal(true);
+  }
+
+  function editException(ex) {
+    setExceptionForm({
+      batchId: ex.batchId,
+      problemType: ex.problemType,
+      responsibility: ex.responsibility,
+      description: ex.description,
+      status: ex.status,
+      handler: ex.handler || ''
+    });
+    setEditingExceptionId(ex.id);
+    setShowExceptionModal(true);
+  }
+
+  function submitException(event) {
+    event.preventDefault();
+    if (!exceptionForm.batchId) {
+      alert('请选择关联批次');
+      return;
+    }
+    if (!exceptionForm.description.trim()) {
+      alert('请填写现场说明');
+      return;
+    }
+
+    if (editingExceptionId) {
+      const next = exceptions.map((ex) => ex.id === editingExceptionId
+        ? { ...ex, ...exceptionForm, updatedAt: new Date().toISOString() }
+        : ex);
+      persistExceptions(next);
+    } else {
+      const newException = {
+        id: uid(),
+        ...exceptionForm,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        timeline: [{ status: exceptionForm.status, at: today, by: exceptionForm.handler || '操作员' }]
+      };
+      persistExceptions([newException, ...exceptions]);
+    }
+
+    setShowExceptionModal(false);
+    setEditingExceptionId(null);
+  }
+
+  function removeException(id) {
+    if (confirm('确定要删除此异常记录吗？')) {
+      persistExceptions(exceptions.filter((ex) => ex.id !== id));
+    }
+  }
+
+  function updateExceptionStatus(id, status) {
+    const next = exceptions.map((ex) => ex.id === id ? {
+      ...ex,
+      status,
+      updatedAt: new Date().toISOString(),
+      timeline: [...(ex.timeline || []), { status, at: today, by: '操作员' }]
+    } : ex);
+    persistExceptions(next);
   }
 
   function addArchive(event) {
@@ -934,6 +1067,7 @@ function App() {
       .filter((item) => !filters.query || `${item.plate}${item.goods}${item.driver}`.includes(filters.query))
       .filter((item) => filters.status === '全部' || item.status === filters.status)
       .filter((item) => !selectedRoute || `${item.from}→${item.to}` === selectedRoute)
+      .filter((item) => !filterHasException || exceptions.some((ex) => ex.batchId === item.id))
       .sort((a, b) => {
         if (appConfig.sort === 'priority') {
           const rank = priorityRank(a.priority) - priorityRank(b.priority);
@@ -943,13 +1077,23 @@ function App() {
         const bDate = b[appConfig.dateKey] || b.sentAt || b.createdAt || '';
         return String(aDate).localeCompare(String(bDate));
       });
-  }, [records, filters, selectedRoute]);
+  }, [records, filters, selectedRoute, filterHasException, exceptions]);
 
   const metrics = [
     { label: "批次数", value: records.length },
     { label: "异常批次", value: records.filter((item) => item.status === '异常' || hasHotTemp(item)).length },
     { label: "运输中", value: records.filter((item) => item.status === '运输中').length },
+    { label: "未处理交接异常", value: exceptions.filter((ex) => ex.status === '待处理' || ex.status === '处理中').length, highlight: true },
   ];
+
+  const filteredExceptions = useMemo(() => {
+    return exceptions.filter((ex) => {
+      if (!exceptionQuery) return true;
+      const batch = records.find((r) => r.id === ex.batchId);
+      const batchLabel = batch ? getBatchLabel(batch) : '';
+      return `${batchLabel}${ex.problemType}${ex.responsibility}${ex.description}${ex.status}`.includes(exceptionQuery);
+    });
+  }, [exceptions, exceptionQuery, records]);
 
   const filteredArchives = useMemo(() => {
     return archives.filter((item) => !archiveQuery || `${item.plate}${item.driver}${item.phone}${item.from}${item.to}`.includes(archiveQuery));
@@ -1000,6 +1144,10 @@ function App() {
           <button type="button" className="archive-toggle-btn" onClick={() => setShowArchivePanel(!showArchivePanel)}>
             <FolderKanban size={18} />
             {showArchivePanel ? '关闭档案管理' : '司机与车辆档案'}
+          </button>
+          <button type="button" className="exception-toggle-btn" onClick={() => setShowExceptionPanel(!showExceptionPanel)}>
+            <AlertTriangle size={18} />
+            {showExceptionPanel ? '关闭异常登记' : '交接异常登记'}
           </button>
           <div className="port-card">
             <span>Local Port</span>
@@ -1089,9 +1237,75 @@ function App() {
         </section>
       )}
 
+      {showExceptionPanel && (
+        <section className="panel exception-panel">
+          <div className="panel-title">
+            <AlertTriangle size={18} />
+            <h2>交接异常登记管理</h2>
+            <span className="archive-count">共 {exceptions.length} 条异常记录</span>
+            <button type="button" className="exception-add-btn" onClick={() => openExceptionModal()}>
+              <Plus size={16} />新增异常登记
+            </button>
+          </div>
+          <div className="exception-layout">
+            <div className="exception-list-wrap">
+              <div className="toolbar">
+                <div className="search">
+                  <Search size={16} />
+                  <input value={exceptionQuery} onChange={(e) => setExceptionQuery(e.target.value)} placeholder="搜索批次/问题类型/责任环节..." />
+                </div>
+              </div>
+              <div className="exception-list">
+                {filteredExceptions.length === 0 ? (
+                  <p className="empty">暂无异常记录</p>
+                ) : (
+                  filteredExceptions.map((ex) => {
+                    const batch = records.find((r) => r.id === ex.batchId);
+                    return (
+                      <div className="exception-card" key={ex.id}>
+                        <div className="exception-card-head">
+                          <div>
+                            <strong className="exception-type">{ex.problemType}</strong>
+                            <span className={'exception-status ' + exceptionStatusClass(ex.status)}>{ex.status}</span>
+                          </div>
+                          <div className="exception-card-actions">
+                            <button type="button" onClick={() => editException(ex)} title="编辑"><Pencil size={14} /></button>
+                            <button type="button" className="ghost-danger" onClick={() => removeException(ex.id)} title="删除"><Trash2 size={14} /></button>
+                          </div>
+                        </div>
+                        <div className="exception-card-batch">
+                          {batch ? getBatchLabel(batch) : '批次已删除'}
+                        </div>
+                        <div className="exception-card-meta">
+                          <span>责任环节：{ex.responsibility}</span>
+                          {ex.handler && <span>处理人：{ex.handler}</span>}
+                        </div>
+                        <p className="exception-card-desc">{ex.description}</p>
+                        <div className="exception-card-footer">
+                          <span className="exception-date">登记时间：{new Date(ex.createdAt).toLocaleString('zh-CN')}</span>
+                          <div className="exception-status-actions">
+                            {exceptionConfig.statuses.map((status) => (
+                              ex.status !== status && (
+                                <button key={status} type="button" className="exception-status-btn" onClick={() => updateExceptionStatus(ex.id, status)}>
+                                  标记{status}
+                                </button>
+                              )
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="metrics">
         {metrics.map((metric) => (
-          <article className="metric" key={metric.label}>
+          <article className={'metric ' + (metric.highlight ? 'metric-highlight' : '')} key={metric.label}>
             <span>{metric.label}</span>
             <strong>{metric.value}</strong>
           </article>
@@ -1212,33 +1426,55 @@ function App() {
               <option>全部</option>
               {appConfig.statuses.map((status) => <option key={status}>{status}</option>)}
             </select>
+            <label className="exception-filter-check">
+              <input
+                type="checkbox"
+                checked={filterHasException}
+                onChange={(e) => setFilterHasException(e.target.checked)}
+              />
+              <span>仅显示有关联异常批次</span>
+            </label>
           </div>
 
           <div className="records">
-            {filteredRecords.map((item) => (
-              <article className={'record ' + (item.conflict || hasOverlap(item, records) ? 'conflict' : '')} key={item.id} onClick={() => setSelected(item)}>
-                <div className="record-head">
-                  <div>
-                    <h3>{item.goods}</h3>
-                    <p>{`${item.plate} · ${item.from} → ${item.to}`}</p>
+            {filteredRecords.map((item) => {
+              const itemExceptions = getExceptionsForBatch(item.id, exceptions);
+              const hasUnprocessed = hasUnprocessedException(item.id, exceptions);
+              return (
+                <article className={'record ' + (item.conflict || hasOverlap(item, records) ? 'conflict' : '') + (hasUnprocessed ? ' has-unprocessed-exception' : '')} key={item.id} onClick={() => setSelected(item)}>
+                  <div className="record-head">
+                    <div>
+                      <h3>{item.goods}</h3>
+                      <p>{`${item.plate} · ${item.from} → ${item.to}`}</p>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {itemExceptions.length > 0 && (
+                        <span className={'exception-badge ' + (hasUnprocessed ? 'unprocessed' : 'processed')}>
+                          <AlertTriangle size={10} />{itemExceptions.length}
+                        </span>
+                      )}
+                      <span className={'status ' + statusClass(item.status)}>{item.status}</span>
+                    </div>
                   </div>
-                  <span className={'status ' + statusClass(item.status)}>{item.status}</span>
-                </div>
-                <p className="record-detail">{`司机${item.driver}｜最近温度${latestTemp(item)}℃｜${hasHotTemp(item) ? '已超温' : '温度正常'}`}</p>
-                {(item.conflict || hasOverlap(item, records)) && <div className="warning"><AlertTriangle size={15} />发现冲突</div>}
-                <div className="actions" onClick={(event) => event.stopPropagation()}>
-                  {item.status === '运输中' && (
-                    <button type="button" className="arrive-btn" onClick={() => openConfirm(item)}><Truck size={14} />确认到达</button>
-                  )}
-                  {appConfig.statuses.map((status) => (
-                    <button key={status} type="button" onClick={() => updateStatus(item.id, status)}>{status}</button>
-                  ))}
-                  {appConfig.action === 'copyRecipe' && <button type="button" onClick={() => duplicateRecord(item)}><RotateCcw size={14} />复制</button>}
-                  {appConfig.chart && <button type="button" onClick={() => addTemperature(item)}>加温度</button>}
-                  <button className="ghost-danger" type="button" onClick={() => removeRecord(item.id)}><Trash2 size={14} /></button>
-                </div>
-              </article>
-            ))}
+                  <p className="record-detail">{`司机${item.driver}｜最近温度${latestTemp(item)}℃｜${hasHotTemp(item) ? '已超温' : '温度正常'}`}</p>
+                  {(item.conflict || hasOverlap(item, records)) && <div className="warning"><AlertTriangle size={15} />发现冲突</div>}
+                  <div className="actions" onClick={(event) => event.stopPropagation()}>
+                    {item.status === '运输中' && (
+                      <button type="button" className="arrive-btn" onClick={() => openConfirm(item)}><Truck size={14} />确认到达</button>
+                    )}
+                    {(item.status === '已到达' || item.status === '异常') && (
+                      <button type="button" className="exception-btn" onClick={() => openExceptionModal(item.id)}><AlertTriangle size={14} />登记异常</button>
+                    )}
+                    {appConfig.statuses.map((status) => (
+                      <button key={status} type="button" onClick={() => updateStatus(item.id, status)}>{status}</button>
+                    ))}
+                    {appConfig.action === 'copyRecipe' && <button type="button" onClick={() => duplicateRecord(item)}><RotateCcw size={14} />复制</button>}
+                    {appConfig.chart && <button type="button" onClick={() => addTemperature(item)}>加温度</button>}
+                    <button className="ghost-danger" type="button" onClick={() => removeRecord(item.id)}><Trash2 size={14} /></button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </section>
       </section>
@@ -1288,6 +1524,58 @@ function App() {
                   <span>卸货温度：{selected.arrival.unloadTemp ? selected.arrival.unloadTemp + '℃' : '未填写'}</span>
                   {selected.arrival.remark && <span>备注：{selected.arrival.remark}</span>}
                 </div>
+              )}
+              {(() => {
+                const batchExceptions = getExceptionsForBatch(selected.id, exceptions);
+                if (batchExceptions.length === 0) return null;
+                return (
+                  <div className="batch-exceptions">
+                    <div className="batch-exceptions-title">
+                      <AlertTriangle size={16} />
+                      <strong>关联交接异常（{batchExceptions.length}条）</strong>
+                      {(selected.status === '已到达' || selected.status === '异常') && (
+                        <button type="button" className="exception-add-small" onClick={() => openExceptionModal(selected.id)}>
+                          <Plus size={12} />新增
+                        </button>
+                      )}
+                    </div>
+                    <div className="batch-exceptions-list">
+                      {batchExceptions.map((ex) => (
+                        <div className="batch-exception-item" key={ex.id}>
+                          <div className="batch-exception-head">
+                            <span className="batch-exception-type">{ex.problemType}</span>
+                            <span className={'exception-status ' + exceptionStatusClass(ex.status)}>{ex.status}</span>
+                          </div>
+                          <div className="batch-exception-meta">
+                            <span>责任：{ex.responsibility}</span>
+                            {ex.handler && <span>处理人：{ex.handler}</span>}
+                          </div>
+                          <p className="batch-exception-desc">{ex.description}</p>
+                          <div className="batch-exception-actions">
+                            {exceptionConfig.statuses.map((status) => (
+                              ex.status !== status && (
+                                <button key={status} type="button" className="exception-status-btn small" onClick={() => updateExceptionStatus(ex.id, status)}>
+                                  标记{status}
+                                </button>
+                              )
+                            ))}
+                            <button type="button" className="exception-edit-btn" onClick={() => editException(ex)}>
+                              <Pencil size={12} />编辑
+                            </button>
+                            <button type="button" className="ghost-danger exception-edit-btn" onClick={() => removeException(ex.id)}>
+                              <Trash2 size={12} />删除
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+              {(selected.status === '已到达' || selected.status === '异常') && getExceptionsForBatch(selected.id, exceptions).length === 0 && (
+                <button type="button" className="exception-btn full-width" onClick={() => openExceptionModal(selected.id)}>
+                  <AlertTriangle size={14} />登记交接异常
+                </button>
               )}
               {selected.temps && <TemperatureCurveDetail temps={selected.temps} />}
               <div className="timeline">
@@ -1485,6 +1773,81 @@ function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {showExceptionModal && (
+        <div className="overlay" onClick={() => setShowExceptionModal(false)}>
+          <form className="exception-panel" onClick={(e) => e.stopPropagation()} onSubmit={submitException}>
+            <div className="confirm-header">
+              <div className="confirm-title">
+                <AlertTriangle size={18} />
+                <h2>{editingExceptionId ? '编辑交接异常' : '新增交接异常登记'}</h2>
+              </div>
+              <button type="button" className="close-btn" onClick={() => setShowExceptionModal(false)}><X size={18} /></button>
+            </div>
+            <div className="exception-form-fields">
+              <label className="wide">
+                <span>关联批次（仅显示已到达或异常状态批次）</span>
+                <select value={exceptionForm.batchId} onChange={(e) => setExceptionForm({ ...exceptionForm, batchId: e.target.value })} required>
+                  <option value="">请选择批次</option>
+                  {records
+                    .filter((r) => r.status === '已到达' || r.status === '异常')
+                    .map((record) => (
+                      <option key={record.id} value={record.id}>{getBatchLabel(record)}</option>
+                    ))}
+                </select>
+              </label>
+              <div className="form-grid">
+                <label>
+                  <span>问题类型</span>
+                  <select value={exceptionForm.problemType} onChange={(e) => setExceptionForm({ ...exceptionForm, problemType: e.target.value })}>
+                    {exceptionConfig.problemTypes.map((type) => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>责任环节</span>
+                  <select value={exceptionForm.responsibility} onChange={(e) => setExceptionForm({ ...exceptionForm, responsibility: e.target.value })}>
+                    {exceptionConfig.responsibilityLinks.map((link) => (
+                      <option key={link} value={link}>{link}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="form-grid">
+                <label>
+                  <span>处理状态</span>
+                  <select value={exceptionForm.status} onChange={(e) => setExceptionForm({ ...exceptionForm, status: e.target.value })}>
+                    {exceptionConfig.statuses.map((status) => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>处理人（可选）</span>
+                  <input type="text" value={exceptionForm.handler} onChange={(e) => setExceptionForm({ ...exceptionForm, handler: e.target.value })} placeholder="请输入处理人姓名" />
+                </label>
+              </div>
+              <label className="wide">
+                <span>现场说明</span>
+                <textarea
+                  value={exceptionForm.description}
+                  onChange={(e) => setExceptionForm({ ...exceptionForm, description: e.target.value })}
+                  placeholder="请详细描述异常情况、现场照片编号、涉及数量等信息..."
+                  rows={5}
+                  required
+                />
+              </label>
+            </div>
+            <div className="confirm-actions">
+              <button type="button" className="cancel-btn" onClick={() => setShowExceptionModal(false)}>取消</button>
+              <button type="submit" className="primary confirm-submit">
+                <Save size={18} />{editingExceptionId ? '保存修改' : '提交登记'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </main>
