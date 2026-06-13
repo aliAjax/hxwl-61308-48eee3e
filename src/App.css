@@ -364,7 +364,6 @@ textarea { min-height: 76px; resize: vertical; }
 
 @media (max-width: 620px) {
   .confirm-fields { grid-template-columns: 1fr; }
-}
   h1 { font-size: 26px; }
   .form-grid, .toolbar { grid-template-columns: 1fr; display: grid; }
   .record-head { display: grid; }
