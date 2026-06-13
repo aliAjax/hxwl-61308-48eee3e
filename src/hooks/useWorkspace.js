@@ -126,6 +126,10 @@ export function useWorkspace() {
       createdAt: new Date().toISOString(),
       isDefault: false,
     };
+    const keys = getStorageKeys(newWs.id);
+    localStorage.setItem(keys.records, JSON.stringify([]));
+    localStorage.setItem(keys.archives, JSON.stringify([]));
+    localStorage.setItem(keys.exceptions, JSON.stringify([]));
     const next = [...workspaces, newWs];
     setWorkspaces(next);
     saveWorkspacesMeta(next);
