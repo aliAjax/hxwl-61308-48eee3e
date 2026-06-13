@@ -899,12 +899,8 @@ function App() {
                 onClick={() => setSelectedRoute(selectedRoute === route.key ? null : route.key)}
               >
                 <div className="route-card-head">
-                  <div className="route-name">
-                    <span className="route-from">{route.from}</span>
-                    <span className="route-arrow">→</span>
-                    <span className="route-to">{route.to}</span>
-                  </div>
-                  <span className="route-batch-count">{route.count} 批次</span>
+                  <span className="route-name">{route.from}<span className="route-arrow">→</span>{route.to}</span>
+                  <span className="route-batch-count">{route.count} 批</span>
                 </div>
                 <div className="route-card-stats">
                   <div className="route-stat">
@@ -986,17 +982,6 @@ function App() {
         </form>
 
         <section className="panel list-panel">
-          <div className="panel-title">
-            <ClipboardList size={18} />
-            <h2>运输批次列表</h2>
-            {selectedRoute && (
-              <span className="route-filter-tag">
-                <Route size={12} />{selectedRoute}
-                <button type="button" onClick={() => setSelectedRoute(null)} title="清除筛选"><X size={12} /></button>
-              </span>
-            )}
-            <span className="archive-count">共 {filteredRecords.length} 条</span>
-          </div>
           <div className="toolbar">
             <div className="search">
               <Search size={16} />
