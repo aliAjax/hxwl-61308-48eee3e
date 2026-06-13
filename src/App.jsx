@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays } from 'lucide-react';
+import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X } from 'lucide-react';
 import './App.css';
 
 const appConfig = {
@@ -229,6 +229,8 @@ function App() {
   const [form, setForm] = useState(appConfig.defaultValues);
   const [filters, setFilters] = useState({ query: '', status: '全部' });
   const [selected, setSelected] = useState(null);
+  const [confirmTarget, setConfirmTarget] = useState(null);
+  const [arrivalForm, setArrivalForm] = useState({ arrivedAt: '', signee: '', unloadTemp: '', remark: '' });
 
   function persist(next) {
     setRecords(next);
@@ -295,6 +297,40 @@ function App() {
     } : record);
     persist(next);
     setSelected(next.find((record) => record.id === item.id));
+  }
+
+  function openConfirm(item) {
+    setConfirmTarget(item);
+    setArrivalForm({ arrivedAt: '', signee: '', unloadTemp: '', remark: '' });
+  }
+
+  function confirmArrival(event) {
+    event.preventDefault();
+    if (!confirmTarget) return;
+    const unloadValue = Number(arrivalForm.unloadTemp);
+    const next = records.map((record) => record.id === confirmTarget.id ? {
+      ...record,
+      status: '已到达',
+      arrival: {
+        arrivedAt: arrivalForm.arrivedAt || today,
+        signee: arrivalForm.signee,
+        unloadTemp: arrivalForm.unloadTemp,
+        remark: arrivalForm.remark,
+      },
+      timeline: [...(record.timeline || []), {
+        status: '已到达',
+        at: arrivalForm.arrivedAt || today,
+        by: arrivalForm.signee || '操作员',
+        detail: `卸货温度${arrivalForm.unloadTemp ? arrivalForm.unloadTemp + '℃' : '未填写'}${arrivalForm.remark ? '｜' + arrivalForm.remark : ''}`
+      }],
+      ...(arrivalForm.unloadTemp ? {
+        temps: [...(record.temps || []), unloadValue],
+        temperature: String(unloadValue),
+      } : {}),
+    } : record);
+    persist(next);
+    setSelected(next.find((record) => record.id === confirmTarget.id));
+    setConfirmTarget(null);
   }
 
   const filteredRecords = useMemo(() => {
@@ -414,6 +450,9 @@ function App() {
                 <p className="record-detail">{`司机${item.driver}｜最近温度${latestTemp(item)}℃｜${hasHotTemp(item) ? '已超温' : '温度正常'}`}</p>
                 {(item.conflict || hasOverlap(item, records)) && <div className="warning"><AlertTriangle size={15} />发现冲突</div>}
                 <div className="actions" onClick={(event) => event.stopPropagation()}>
+                  {item.status === '运输中' && (
+                    <button type="button" className="arrive-btn" onClick={() => openConfirm(item)}><Truck size={14} />确认到达</button>
+                  )}
                   {appConfig.statuses.map((status) => (
                     <button key={status} type="button" onClick={() => updateStatus(item.id, status)}>{status}</button>
                   ))}
@@ -463,7 +502,16 @@ function App() {
             <div className="detail">
               <h3>{selected.goods}</h3>
               <p>{`${selected.plate} · ${selected.from} → ${selected.to}`}</p>
-              <p>{`司机${selected.driver}｜最近温度${latestTemp(item)}℃｜${hasHotTemp(item) ? '已超温' : '温度正常'}`}</p>
+              <p>{`司机${selected.driver}｜最近温度${latestTemp(selected)}℃｜${hasHotTemp(selected) ? '已超温' : '温度正常'}`}</p>
+              {selected.arrival && (
+                <div className="arrival-detail">
+                  <strong>到达确认信息</strong>
+                  <span>实际到达：{selected.arrival.arrivedAt}</span>
+                  <span>签收人：{selected.arrival.signee}</span>
+                  <span>卸货温度：{selected.arrival.unloadTemp ? selected.arrival.unloadTemp + '℃' : '未填写'}</span>
+                  {selected.arrival.remark && <span>备注：{selected.arrival.remark}</span>}
+                </div>
+              )}
               {selected.temps && (
                 <div className="temp-chart">
                   {selected.temps.map((value, index) => <i key={index} style={{ height: Math.max(10, 56 + Number(value) * 8) }} title={String(value)} />)}
@@ -471,7 +519,7 @@ function App() {
               )}
               <div className="timeline">
                 {(selected.timeline || []).map((step, index) => (
-                  <span key={index}>{step.at} · {step.status} · {step.by}</span>
+                  <span key={index}>{step.at} · {step.status} · {step.by}{step.detail ? '｜' + step.detail : ''}</span>
                 ))}
               </div>
             </div>
@@ -480,6 +528,47 @@ function App() {
           )}
         </aside>
       </section>
+
+      {confirmTarget && (
+        <div className="overlay" onClick={() => setConfirmTarget(null)}>
+          <form className="confirm-panel" onClick={(e) => e.stopPropagation()} onSubmit={confirmArrival}>
+            <div className="confirm-header">
+              <div className="confirm-title">
+                <Truck size={18} />
+                <h2>批次到达确认</h2>
+              </div>
+              <button type="button" className="close-btn" onClick={() => setConfirmTarget(null)}><X size={18} /></button>
+            </div>
+            <div className="confirm-info">
+              <strong>{confirmTarget.goods}</strong>
+              <span>{confirmTarget.plate} · {confirmTarget.from} → {confirmTarget.to}</span>
+              <span>司机{confirmTarget.driver}｜最近温度{latestTemp(confirmTarget)}℃</span>
+            </div>
+            <div className="confirm-fields">
+              <label>
+                <span>实际到达时间</span>
+                <input type="datetime-local" value={arrivalForm.arrivedAt} onChange={(e) => setArrivalForm({ ...arrivalForm, arrivedAt: e.target.value })} required />
+              </label>
+              <label>
+                <span>签收人</span>
+                <input type="text" value={arrivalForm.signee} onChange={(e) => setArrivalForm({ ...arrivalForm, signee: e.target.value })} placeholder="请输入签收人姓名" required />
+              </label>
+              <label>
+                <span>卸货温度（℃）</span>
+                <input type="number" step="0.1" value={arrivalForm.unloadTemp} onChange={(e) => setArrivalForm({ ...arrivalForm, unloadTemp: e.target.value })} placeholder="-1.5" />
+              </label>
+              <label className="wide">
+                <span>备注</span>
+                <textarea value={arrivalForm.remark} onChange={(e) => setArrivalForm({ ...arrivalForm, remark: e.target.value })} placeholder="到达确认备注信息" rows={3} />
+              </label>
+            </div>
+            <div className="confirm-actions">
+              <button type="button" className="cancel-btn" onClick={() => setConfirmTarget(null)}>取消</button>
+              <button type="submit" className="primary confirm-submit"><CheckCircle2 size={18} />确认到达</button>
+            </div>
+          </form>
+        </div>
+      )}
     </main>
   );
 }

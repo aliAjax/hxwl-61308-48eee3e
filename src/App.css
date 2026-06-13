@@ -251,7 +251,120 @@ textarea { min-height: 76px; resize: vertical; }
   .port-card { min-height: 110px; border-left: 0; border-top: 4px solid var(--accent); }
 }
 
+.arrive-btn {
+  background: #ecfdf3 !important;
+  color: #047857 !important;
+  border-color: #a7f3d0 !important;
+  font-weight: 700;
+}
+
+.arrival-detail {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #a7f3d0;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ecfdf3;
+}
+.arrival-detail strong {
+  color: #047857;
+  margin-bottom: 4px;
+}
+.arrival-detail span {
+  color: #344054;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: grid;
+  place-content: center;
+  z-index: 100;
+  animation: fadeIn .18s ease;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.confirm-panel {
+  background: #ffffff;
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  padding: 24px;
+  width: min(480px, 92vw);
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.18);
+  animation: slideUp .22s ease;
+}
+@keyframes slideUp { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+.confirm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.confirm-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+}
+.confirm-title h2 {
+  font-size: 18px;
+  color: #111827;
+}
+.close-btn {
+  border: 0;
+  background: none;
+  color: #667085;
+  padding: 4px;
+  border-radius: 6px;
+}
+.close-btn:hover {
+  background: #f2f4f7;
+  color: #101828;
+}
+
+.confirm-info {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  margin-bottom: 18px;
+}
+.confirm-info strong { font-size: 15px; color: #111827; }
+.confirm-info span { color: #667085; font-size: 13px; }
+
+.confirm-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.cancel-btn {
+  border: 1px solid #d0d5dd;
+  background: #fff;
+  border-radius: 6px;
+  padding: 10px 20px;
+  color: #344054;
+  font-weight: 600;
+}
+.confirm-submit {
+  width: auto;
+  margin-top: 0;
+}
+
 @media (max-width: 620px) {
+  .confirm-fields { grid-template-columns: 1fr; }
+}
   h1 { font-size: 26px; }
   .form-grid, .toolbar { grid-template-columns: 1fr; display: grid; }
   .record-head { display: grid; }
