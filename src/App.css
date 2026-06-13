@@ -228,6 +228,8 @@ textarea { min-height: 76px; resize: vertical; }
   background: #f8fafc;
   color: #475467;
 }
+
+
 @media (max-width: 980px) {
   .shell { padding: 16px; }
   .hero, .workspace, .insights { grid-template-columns: 1fr; display: grid; }

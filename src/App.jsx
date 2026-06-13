@@ -156,7 +156,7 @@ const appConfig = {
   "cardDetail": "`司机${item.driver}｜最近温度${latestTemp(item)}℃｜${hasHotTemp(item) ? '已超温' : '温度正常'}`",
   "dateKey": "eta",
   "chart": true,
-  "note": "详情区域要显示温度列表、简易折线图和超温标记。",
+  "note": "详情区域要显示温度曲线详情模块，包含温度读数序列、统计信息、趋势分析和超温标记。",
   "defaultValues": {
     "plate": "沪A89K21",
     "goods": "冰鲜黄鱼",
@@ -248,35 +248,26 @@ function statusClass(status) {
 const HOT_THRESHOLD = 2;
 
 function downsample(data, maxPoints) {
-  if (data.length <= maxPoints) {
-    return data.map((v, i) => ({ idx: i, value: v }));
-  }
-  const selected = new Set();
-  selected.add(0);
-  selected.add(data.length - 1);
-  const bucketSize = (data.length - 2) / (maxPoints - 2);
-  for (let i = 0; i < maxPoints - 2; i++) {
-    const start = Math.floor(i * bucketSize) + 1;
-    const end = Math.min(Math.floor((i + 1) * bucketSize) + 1, data.length - 1);
+  if (data.length <= maxPoints) return data.map((v, i) => ({ idx: i, value: v }));
+  const bucketSize = data.length / maxPoints;
+  const result = [];
+  for (let i = 0; i < maxPoints; i++) {
+    const start = Math.floor(i * bucketSize);
+    const end = Math.min(Math.floor((i + 1) * bucketSize), data.length);
     let min = Infinity, max = -Infinity, minIdx = start, maxIdx = start;
     for (let j = start; j < end; j++) {
       if (data[j] < min) { min = data[j]; minIdx = j; }
       if (data[j] > max) { max = data[j]; maxIdx = j; }
     }
-    selected.add(minIdx);
-    selected.add(maxIdx);
-    const midIdx = Math.floor((start + end) / 2);
-    selected.add(midIdx);
+    if (i % 2 === 0) {
+      result.push({ idx: minIdx, value: min });
+      result.push({ idx: maxIdx, value: max });
+    } else {
+      result.push({ idx: maxIdx, value: max });
+      result.push({ idx: minIdx, value: min });
+    }
   }
-  const result = Array.from(selected)
-    .sort((a, b) => a - b)
-    .map((idx) => ({ idx, value: data[idx] }));
-  if (result.length > maxPoints * 1.5) {
-    return downsample(result.map((p) => p.value), maxPoints).map((p, i) => ({
-      idx: result[p.idx].idx,
-      value: result[p.idx].value
-    }));
-  }
+  result.sort((a, b) => a.idx - b.idx);
   return result;
 }
 
@@ -400,7 +391,7 @@ function TemperatureCurveDetail({ temps }) {
             </linearGradient>
           </defs>
 
-          {yTicks.filter(tick => Math.abs(tick - HOT_THRESHOLD) > 0.01).map(tick => (
+          {yTicks.map(tick => (
             <g key={tick}>
               <line
                 x1={padL}
@@ -408,8 +399,8 @@ function TemperatureCurveDetail({ temps }) {
                 x2={chartW - padR}
                 y2={yToPx(tick)}
                 stroke="#e5e7eb"
-                strokeDasharray="3 3"
-                strokeWidth="1"
+                strokeDasharray={tick === HOT_THRESHOLD ? '' : '3 3'}
+                strokeWidth={tick === HOT_THRESHOLD ? 1.5 : 1}
               />
               <text x={padL - 8} y={yToPx(tick) + 4} textAnchor="end" fontSize="11" fill="#667085">
                 {tick}℃
@@ -417,24 +408,21 @@ function TemperatureCurveDetail({ temps }) {
             </g>
           ))}
 
-          {numbers.length > 0 && yMin <= HOT_THRESHOLD && HOT_THRESHOLD <= yMax && (
-            <>
-              <line
-                x1={padL}
-                y1={yToPx(HOT_THRESHOLD)}
-                x2={chartW - padR}
-                y2={yToPx(HOT_THRESHOLD)}
-                stroke="#dc2626"
-                strokeWidth="1.5"
-                strokeDasharray="6 4"
-              />
-              <text x={chartW - padR - 4} y={yToPx(HOT_THRESHOLD) - 6} textAnchor="end" fontSize="11" fill="#dc2626" fontWeight="700">
-                超温阈值 {HOT_THRESHOLD}℃
-              </text>
-              <text x={padL - 8} y={yToPx(HOT_THRESHOLD) + 4} textAnchor="end" fontSize="11" fill="#dc2626" fontWeight="600">
-                {HOT_THRESHOLD}℃
-              </text>
-            </>
+          {numbers.length > 0 && (
+            <line
+              x1={padL}
+              y1={yToPx(HOT_THRESHOLD)}
+              x2={chartW - padR}
+              y2={yToPx(HOT_THRESHOLD)}
+              stroke="#dc2626"
+              strokeWidth="1.5"
+              strokeDasharray="6 4"
+            />
+          )}
+          {numbers.length > 0 && (
+            <text x={chartW - padR - 4} y={yToPx(HOT_THRESHOLD) - 6} textAnchor="end" fontSize="11" fill="#dc2626" fontWeight="700">
+              超温阈值 {HOT_THRESHOLD}℃
+            </text>
           )}
 
           {areaD && <path d={areaD} fill="url(#tempAreaGrad)" />}
