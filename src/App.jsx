@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X } from 'lucide-react';
+import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus } from 'lucide-react';
 import './App.css';
 
 const appConfig = {
@@ -231,6 +231,9 @@ function App() {
   const [selected, setSelected] = useState(null);
   const [confirmTarget, setConfirmTarget] = useState(null);
   const [arrivalForm, setArrivalForm] = useState({ arrivedAt: '', signee: '', unloadTemp: '', remark: '' });
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchForm, setBatchForm] = useState({ batchId: '', tempText: '' });
+  const [batchError, setBatchError] = useState('');
 
   function persist(next) {
     setRecords(next);
@@ -297,6 +300,61 @@ function App() {
     } : record);
     persist(next);
     setSelected(next.find((record) => record.id === item.id));
+  }
+
+  function parseTemperatures(text) {
+    if (!text.trim()) {
+      return { valid: [], invalid: ['请输入温度读数'] };
+    }
+    const parts = text.split(/[\n,，]+/).map((s) => s.trim()).filter((s) => s.length > 0);
+    const valid = [];
+    const invalid = [];
+    parts.forEach((part, index) => {
+      const num = Number(part);
+      if (Number.isFinite(num)) {
+        valid.push(num);
+      } else {
+        invalid.push(`第${index + 1}项"${part}"不是有效的数字`);
+      }
+    });
+    return { valid, invalid };
+  }
+
+  function openBatchModal() {
+    setBatchForm({ batchId: records[0]?.id || '', tempText: '' });
+    setBatchError('');
+    setShowBatchModal(true);
+  }
+
+  function submitBatchTemps(event) {
+    event.preventDefault();
+    setBatchError('');
+
+    if (!batchForm.batchId) {
+      setBatchError('请选择运输批次');
+      return;
+    }
+
+    const { valid, invalid } = parseTemperatures(batchForm.tempText);
+    if (invalid.length > 0) {
+      setBatchError(invalid.join('；'));
+      return;
+    }
+    if (valid.length === 0) {
+      setBatchError('未识别到有效的温度读数');
+      return;
+    }
+
+    const hasHot = valid.some((v) => v > 2);
+    const next = records.map((record) => record.id === batchForm.batchId ? {
+      ...record,
+      temps: [...(record.temps || []), ...valid],
+      temperature: String(valid[valid.length - 1]),
+      status: hasHot ? '异常' : record.status
+    } : record);
+    persist(next);
+    setSelected(next.find((record) => record.id === batchForm.batchId));
+    setShowBatchModal(false);
   }
 
   function openConfirm(item) {
@@ -422,6 +480,7 @@ function App() {
             </label>
           </div>
           <button className="primary" type="submit"><Plus size={18} />新增</button>
+          <button type="button" className="secondary-btn" onClick={openBatchModal}><ListPlus size={18} />批量录入温度</button>
           <p className="hint">{appConfig.note}</p>
         </form>
 
@@ -528,6 +587,50 @@ function App() {
           )}
         </aside>
       </section>
+
+      {showBatchModal && (
+        <div className="overlay" onClick={() => setShowBatchModal(false)}>
+          <form className="batch-panel" onClick={(e) => e.stopPropagation()} onSubmit={submitBatchTemps}>
+            <div className="confirm-header">
+              <div className="confirm-title">
+                <ListPlus size={18} />
+                <h2>批量录入温度</h2>
+              </div>
+              <button type="button" className="close-btn" onClick={() => setShowBatchModal(false)}><X size={18} /></button>
+            </div>
+            <div className="batch-fields">
+              <label>
+                <span>选择运输批次</span>
+                <select value={batchForm.batchId} onChange={(e) => setBatchForm({ ...batchForm, batchId: e.target.value })}>
+                  <option value="">请选择批次</option>
+                  {records.map((record) => (
+                    <option key={record.id} value={record.id}>{record.goods} · {record.plate} · {record.from}→{record.to}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="wide">
+                <span>温度读数（用换行或逗号分隔多个数值）</span>
+                <textarea
+                  value={batchForm.tempText}
+                  onChange={(e) => setBatchForm({ ...batchForm, tempText: e.target.value })}
+                  placeholder="例如：&#10;-1.5&#10;-1.2, -0.8&#10;0.5"
+                  rows={8}
+                />
+              </label>
+              {batchError && (
+                <div className="batch-error">
+                  <AlertTriangle size={14} />
+                  <span>{batchError}</span>
+                </div>
+              )}
+            </div>
+            <div className="confirm-actions">
+              <button type="button" className="cancel-btn" onClick={() => setShowBatchModal(false)}>取消</button>
+              <button type="submit" className="primary confirm-submit"><CheckCircle2 size={18} />确认提交</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {confirmTarget && (
         <div className="overlay" onClick={() => setConfirmTarget(null)}>
