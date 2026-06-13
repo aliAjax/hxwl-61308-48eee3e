@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus, CarFront, User, Phone, Route, Pencil, Save, FolderKanban, FileStack } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus, CarFront, User, Phone, Route, Pencil, Save, FolderKanban, FileStack, Bell, AlertOctagon, Clock, TrendingUp, CheckSquare, Eye } from 'lucide-react';
 import './App.css';
 
 const archiveConfig = {
@@ -231,6 +231,93 @@ function hasHotTemp(item) {
   return temps.some((value) => Number(value) > 2);
 }
 
+function maxTemp(item) {
+  const temps = item.temps || [Number(item.temperature)];
+  return Math.max(...temps.map(Number));
+}
+
+function isContinuouslyRising(item) {
+  const temps = item.temps || [Number(item.temperature)];
+  if (temps.length < 3) return false;
+  const recent = temps.slice(-3).map(Number);
+  return recent[0] < recent[1] && recent[1] < recent[2];
+}
+
+function hoursUntilEta(etaText) {
+  if (!etaText) return null;
+  const eta = new Date(etaText);
+  const now = new Date();
+  const diff = (eta.getTime() - now.getTime()) / 3600000;
+  return diff;
+}
+
+function isNearEta(item) {
+  if (item.status !== '运输中') return false;
+  const hours = hoursUntilEta(item.eta);
+  return hours !== null && hours <= 2 && hours > 0;
+}
+
+function alertRiskRank(level) {
+  return { '危急': 0, '高': 1, '中': 2, '低': 3 }[level] ?? 9;
+}
+
+function riskClass(level) {
+  return { '危急': 'risk-critical', '高': 'risk-high', '中': 'risk-medium', '低': 'risk-low' }[level] || 'risk-low';
+}
+
+function generateAlerts(records, handledAlertIds) {
+  const alerts = [];
+  records.forEach((item) => {
+    if (item.status === '已到达') return;
+
+    if (hasHotTemp(item) && !handledAlertIds.has(`overtemp-${item.id}`)) {
+      const max = maxTemp(item);
+      alerts.push({
+        id: `overtemp-${item.id}`,
+        type: 'overtemp',
+        typeLabel: '超温告警',
+        recordId: item.id,
+        level: '危急',
+        title: `${item.goods}（${item.plate}）温度超标`,
+        description: `当前最高温度 ${max}℃，已超过安全阈值 2℃`,
+        recordInfo: `${item.plate} · ${item.from} → ${item.to} · 司机${item.driver}`,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    if (isNearEta(item) && !handledAlertIds.has(`eta-${item.id}`)) {
+      const hours = hoursUntilEta(item.eta);
+      alerts.push({
+        id: `eta-${item.id}`,
+        type: 'eta',
+        typeLabel: '临近到达',
+        recordId: item.id,
+        level: '中',
+        title: `${item.goods}（${item.plate}）临近计划到达时间`,
+        description: `距离计划到达仅约 ${hours.toFixed(1)} 小时，但仍在运输中`,
+        recordInfo: `${item.plate} · ${item.from} → ${item.to} · 司机${item.driver}`,
+        createdAt: new Date().toISOString()
+      });
+    }
+
+    if (isContinuouslyRising(item) && !handledAlertIds.has(`rising-${item.id}`)) {
+      const temps = (item.temps || [Number(item.temperature)]).slice(-3).map(Number);
+      alerts.push({
+        id: `rising-${item.id}`,
+        type: 'rising',
+        typeLabel: '连续升温',
+        recordId: item.id,
+        level: '高',
+        title: `${item.goods}（${item.plate}）温度持续上升`,
+        description: `最近3次读数：${temps.join(' → ')}℃，呈连续上升趋势`,
+        recordInfo: `${item.plate} · ${item.from} → ${item.to} · 司机${item.driver}`,
+        createdAt: new Date().toISOString()
+      });
+    }
+  });
+  return alerts.sort((a, b) => alertRiskRank(a.level) - alertRiskRank(b.level));
+}
+
 function priorityRank(value) {
   return { 危急: 0, 加急: 1, 常规: 2, 高: 0, 中: 1, 低: 2 }[value] ?? 9;
 }
@@ -260,6 +347,20 @@ function App() {
   const [archiveForm, setArchiveForm] = useState({ plate: '', driver: '', phone: '', from: '', to: '' });
   const [editingArchiveId, setEditingArchiveId] = useState(null);
   const [archiveQuery, setArchiveQuery] = useState('');
+  const [showAlertCenter, setShowAlertCenter] = useState(false);
+  const [handledAlertIds, setHandledAlertIds] = useState(() => {
+    const raw = localStorage.getItem(appConfig.storage + '-handled-alerts');
+    if (raw) {
+      try {
+        return new Set(JSON.parse(raw));
+      } catch {
+        return new Set();
+      }
+    }
+    return new Set();
+  });
+  const [alertFilter, setAlertFilter] = useState('全部');
+  const [selectedRoute, setSelectedRoute] = useState(null);
 
   function persistArchives(next) {
     setArchives(next);
@@ -310,6 +411,39 @@ function App() {
   function persist(next) {
     setRecords(next);
     localStorage.setItem(appConfig.storage, JSON.stringify(next));
+  }
+
+  function persistHandledAlerts(next) {
+    setHandledAlertIds(next);
+    localStorage.setItem(appConfig.storage + '-handled-alerts', JSON.stringify([...next]));
+  }
+
+  function markAlertHandled(alert) {
+    const nextHandled = new Set(handledAlertIds);
+    nextHandled.add(alert.id);
+    persistHandledAlerts(nextHandled);
+
+    const next = records.map((record) => record.id === alert.recordId ? {
+      ...record,
+      timeline: [...(record.timeline || []), {
+        status: '告警已处理',
+        at: today,
+        by: '操作员',
+        detail: `${alert.typeLabel}｜${alert.title}｜处理说明：${alert.description}`
+      }]
+    } : record);
+    persist(next);
+    if (selected?.id === alert.recordId) {
+      setSelected(next.find((record) => record.id === alert.recordId));
+    }
+  }
+
+  function jumpToRecord(recordId) {
+    const record = records.find((r) => r.id === recordId);
+    if (record) {
+      setSelected(record);
+      setShowAlertCenter(false);
+    }
   }
 
   function addRecord(event) {
@@ -463,10 +597,39 @@ function App() {
     setConfirmTarget(null);
   }
 
+  const routeStats = useMemo(() => {
+    const groups = {};
+    records.forEach((item) => {
+      const key = `${item.from}→${item.to}`;
+      if (!groups[key]) {
+        groups[key] = { from: item.from, to: item.to, count: 0, abnormalCount: 0, temps: [], etas: [] };
+      }
+      groups[key].count += 1;
+      if (item.status === '异常' || hasHotTemp(item)) {
+        groups[key].abnormalCount += 1;
+      }
+      groups[key].temps.push(latestTemp(item));
+      if (item.eta) {
+        groups[key].etas.push(item.eta);
+      }
+    });
+    return Object.entries(groups).map(([key, data]) => ({
+      key,
+      from: data.from,
+      to: data.to,
+      count: data.count,
+      abnormalRate: data.count > 0 ? ((data.abnormalCount / data.count) * 100).toFixed(1) : '0.0',
+      avgTemp: data.temps.length > 0 ? avg(data.temps).toFixed(1) : '-',
+      earliestEta: data.etas.length > 0 ? data.etas.sort()[0] : '-',
+      abnormalCount: data.abnormalCount,
+    })).sort((a, b) => b.count - a.count);
+  }, [records]);
+
   const filteredRecords = useMemo(() => {
     return records
       .filter((item) => !filters.query || `${item.plate}${item.goods}${item.driver}`.includes(filters.query))
       .filter((item) => filters.status === '全部' || item.status === filters.status)
+      .filter((item) => !selectedRoute || `${item.from}→${item.to}` === selectedRoute)
       .sort((a, b) => {
         if (appConfig.sort === 'priority') {
           const rank = priorityRank(a.priority) - priorityRank(b.priority);
@@ -476,12 +639,28 @@ function App() {
         const bDate = b[appConfig.dateKey] || b.sentAt || b.createdAt || '';
         return String(aDate).localeCompare(String(bDate));
       });
-  }, [records, filters]);
+  }, [records, filters, selectedRoute]);
+
+  const alerts = useMemo(() => generateAlerts(records, handledAlertIds), [records, handledAlertIds]);
+
+  const filteredAlerts = useMemo(() => {
+    if (alertFilter === '全部') return alerts;
+    return alerts.filter((a) => a.level === alertFilter);
+  }, [alerts, alertFilter]);
+
+  const alertStats = useMemo(() => {
+    const critical = alerts.filter((a) => a.level === '危急').length;
+    const high = alerts.filter((a) => a.level === '高').length;
+    const medium = alerts.filter((a) => a.level === '中').length;
+    const low = alerts.filter((a) => a.level === '低').length;
+    return { total: alerts.length, critical, high, medium, low };
+  }, [alerts]);
 
   const metrics = [
     { label: "批次数", value: records.length },
     { label: "异常批次", value: records.filter((item) => item.status === '异常' || hasHotTemp(item)).length },
     { label: "运输中", value: records.filter((item) => item.status === '运输中').length },
+    { label: "待处理告警", value: alertStats.total, alert: true },
   ];
 
   const filteredArchives = useMemo(() => {
@@ -513,6 +692,11 @@ function App() {
           <p>{appConfig.subtitle}</p>
         </div>
         <div className="hero-actions">
+          <button type="button" className={'alert-toggle-btn ' + (alertStats.total > 0 ? 'has-alerts' : '')} onClick={() => setShowAlertCenter(!showAlertCenter)}>
+            <Bell size={18} />
+            {showAlertCenter ? '关闭告警中心' : '温控告警中心'}
+            {alertStats.total > 0 && <span className="alert-badge">{alertStats.total}</span>}
+          </button>
           <button type="button" className="archive-toggle-btn" onClick={() => setShowArchivePanel(!showArchivePanel)}>
             <FolderKanban size={18} />
             {showArchivePanel ? '关闭档案管理' : '司机与车辆档案'}
@@ -523,6 +707,85 @@ function App() {
           </div>
         </div>
       </section>
+
+      {showAlertCenter && (
+        <section className="panel alert-center-panel">
+          <div className="panel-title">
+            <Bell size={18} />
+            <h2>运输批次温控告警中心</h2>
+            <span className="archive-count">共 {alertStats.total} 条待处理告警</span>
+          </div>
+          <div className="alert-stats">
+            <div className={'alert-stat-item risk-critical'}>
+              <AlertOctagon size={20} />
+              <div>
+                <span>危急</span>
+                <strong>{alertStats.critical}</strong>
+              </div>
+            </div>
+            <div className={'alert-stat-item risk-high'}>
+              <TrendingUp size={20} />
+              <div>
+                <span>高</span>
+                <strong>{alertStats.high}</strong>
+              </div>
+            </div>
+            <div className={'alert-stat-item risk-medium'}>
+              <Clock size={20} />
+              <div>
+                <span>中</span>
+                <strong>{alertStats.medium}</strong>
+              </div>
+            </div>
+            <div className={'alert-stat-item risk-low'}>
+              <AlertTriangle size={20} />
+              <div>
+                <span>低</span>
+                <strong>{alertStats.low}</strong>
+              </div>
+            </div>
+          </div>
+          <div className="alert-filter">
+            <button className={alertFilter === '全部' ? 'active' : ''} onClick={() => setAlertFilter('全部')}>全部</button>
+            <button className={alertFilter === '危急' ? 'active' : ''} onClick={() => setAlertFilter('危急')}>危急</button>
+            <button className={alertFilter === '高' ? 'active' : ''} onClick={() => setAlertFilter('高')}>高</button>
+            <button className={alertFilter === '中' ? 'active' : ''} onClick={() => setAlertFilter('中')}>中</button>
+            <button className={alertFilter === '低' ? 'active' : ''} onClick={() => setAlertFilter('低')}>低</button>
+          </div>
+          <div className="alert-list">
+            {filteredAlerts.length === 0 ? (
+              <p className="empty">暂无告警，所有批次温度正常。</p>
+            ) : (
+              filteredAlerts.map((alert) => (
+                <article className={'alert-card ' + riskClass(alert.level)} key={alert.id}>
+                  <div className="alert-card-head">
+                    <div className="alert-card-left">
+                      <span className="alert-type-tag">
+                        {alert.type === 'overtemp' && <AlertOctagon size={14} />}
+                        {alert.type === 'eta' && <Clock size={14} />}
+                        {alert.type === 'rising' && <TrendingUp size={14} />}
+                        {alert.typeLabel}
+                      </span>
+                      <span className={'risk-badge ' + riskClass(alert.level)}>{alert.level}</span>
+                    </div>
+                    <div className="alert-card-right">
+                      <button type="button" className="alert-view-btn" onClick={() => jumpToRecord(alert.recordId)} title="查看批次详情">
+                        <Eye size={14} />查看详情
+                      </button>
+                      <button type="button" className="alert-handle-btn" onClick={() => markAlertHandled(alert)} title="标记为已处理">
+                        <CheckSquare size={14} />标记已处理
+                      </button>
+                    </div>
+                  </div>
+                  <h3 className="alert-title">{alert.title}</h3>
+                  <p className="alert-desc">{alert.description}</p>
+                  <p className="alert-meta">{alert.recordInfo}</p>
+                </article>
+              ))
+            )}
+          </div>
+        </section>
+      )}
 
       {showArchivePanel && (
         <section className="panel archive-panel">
@@ -607,11 +870,66 @@ function App() {
 
       <section className="metrics">
         {metrics.map((metric) => (
-          <article className="metric" key={metric.label}>
+          <article className={'metric' + (metric.alert ? ' metric-alert' : '')} key={metric.label}>
             <span>{metric.label}</span>
             <strong>{metric.value}</strong>
           </article>
         ))}
+      </section>
+
+      <section className="panel route-board-panel">
+        <div className="panel-title">
+          <Route size={18} />
+          <h2>冷链运输路线看板</h2>
+          <span className="archive-count">共 {routeStats.length} 条线路</span>
+          {selectedRoute && (
+            <button type="button" className="clear-route-btn" onClick={() => setSelectedRoute(null)}>
+              <X size={14} />清除线路筛选
+            </button>
+          )}
+        </div>
+        <div className="route-board">
+          {routeStats.length === 0 ? (
+            <p className="empty">暂无运输线路数据</p>
+          ) : (
+            routeStats.map((route) => (
+              <article
+                key={route.key}
+                className={'route-card ' + (selectedRoute === route.key ? 'active' : '')}
+                onClick={() => setSelectedRoute(selectedRoute === route.key ? null : route.key)}
+              >
+                <div className="route-card-head">
+                  <div className="route-name">
+                    <span className="route-from">{route.from}</span>
+                    <span className="route-arrow">→</span>
+                    <span className="route-to">{route.to}</span>
+                  </div>
+                  <span className="route-batch-count">{route.count} 批次</span>
+                </div>
+                <div className="route-card-stats">
+                  <div className="route-stat">
+                    <span className="route-stat-label">异常率</span>
+                    <strong className={'route-stat-value ' + (Number(route.abnormalRate) > 0 ? 'abnormal' : 'normal')}>
+                      {route.abnormalRate}%
+                    </strong>
+                  </div>
+                  <div className="route-stat">
+                    <span className="route-stat-label">平均最近温度</span>
+                    <strong className="route-stat-value">
+                      {route.avgTemp}℃
+                    </strong>
+                  </div>
+                  <div className="route-stat">
+                    <span className="route-stat-label">最早计划到达</span>
+                    <strong className="route-stat-value eta">
+                      {route.earliestEta !== '-' ? route.earliestEta.replace('T', ' ') : '-'}
+                    </strong>
+                  </div>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
       </section>
 
       <section className="workspace">
@@ -668,6 +986,17 @@ function App() {
         </form>
 
         <section className="panel list-panel">
+          <div className="panel-title">
+            <ClipboardList size={18} />
+            <h2>运输批次列表</h2>
+            {selectedRoute && (
+              <span className="route-filter-tag">
+                <Route size={12} />{selectedRoute}
+                <button type="button" onClick={() => setSelectedRoute(null)} title="清除筛选"><X size={12} /></button>
+              </span>
+            )}
+            <span className="archive-count">共 {filteredRecords.length} 条</span>
+          </div>
           <div className="toolbar">
             <div className="search">
               <Search size={16} />
