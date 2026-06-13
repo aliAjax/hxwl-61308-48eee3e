@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus, CarFront, User, Phone, Route, Pencil, Save, FolderKanban, FileStack, TrendingUp, TrendingDown, Minus, ArrowUp, ArrowDown } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus, CarFront, User, Phone, Route, Pencil, Save, FolderKanban, FileStack, TrendingUp, TrendingDown, Minus, ArrowUp, ArrowDown, Download, Upload, FileJson } from 'lucide-react';
 import './App.css';
 
 const archiveConfig = {
@@ -582,6 +582,10 @@ function App() {
   const [editingArchiveId, setEditingArchiveId] = useState(null);
   const [archiveQuery, setArchiveQuery] = useState('');
   const [selectedRoute, setSelectedRoute] = useState(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importValidation, setImportValidation] = useState([]);
+  const [importFileName, setImportFileName] = useState('');
+  const fileInputRef = useRef(null);
 
   function persistArchives(next) {
     setArchives(next);
@@ -632,6 +636,118 @@ function App() {
   function persist(next) {
     setRecords(next);
     localStorage.setItem(appConfig.storage, JSON.stringify(next));
+  }
+
+  function validateRecord(item, index) {
+    const errors = [];
+    if (!item.plate || !String(item.plate).trim()) {
+      errors.push('缺少车牌');
+    }
+    if (!item.goods || !String(item.goods).trim()) {
+      errors.push('缺少货品');
+    }
+    if (!item.to || !String(item.to).trim()) {
+      errors.push('缺少目的地');
+    }
+    if (!item.eta || !String(item.eta).trim()) {
+      errors.push('缺少计划到达时间');
+    }
+    const temps = item.temps;
+    if (temps !== undefined && temps !== null) {
+      if (!Array.isArray(temps)) {
+        errors.push('温度列表格式异常');
+      } else {
+        const hasInvalidTemp = temps.some(t => !Number.isFinite(Number(t)));
+        if (hasInvalidTemp) {
+          errors.push('温度列表含有非数值');
+        }
+      }
+    }
+    return { index, valid: errors.length === 0, errors, data: item };
+  }
+
+  function exportRecords() {
+    const exportData = records.map(({ id, timeline, createdAt, conflict, ...rest }) => rest);
+    const jsonStr = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    link.download = `冷链运输记录-${dateStr}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function triggerImport() {
+    fileInputRef.current?.click();
+  }
+
+  function handleFileChange(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result;
+        let parsed = JSON.parse(content);
+        if (!Array.isArray(parsed)) {
+          if (parsed.records && Array.isArray(parsed.records)) {
+            parsed = parsed.records;
+          } else {
+            alert('JSON格式不正确：根节点应为数组或包含records数组');
+            resetImportState();
+            return;
+          }
+        }
+        const validation = parsed.map((item, i) => validateRecord(item, i));
+        setImportValidation(validation);
+        setShowImportModal(true);
+      } catch (err) {
+        alert('文件解析失败：' + (err instanceof Error ? err.message : '无效的JSON格式'));
+      } finally {
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.onerror = () => {
+      alert('文件读取失败');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    reader.readAsText(file);
+  }
+
+  function resetImportState() {
+    setShowImportModal(false);
+    setImportValidation([]);
+    setImportFileName('');
+  }
+
+  function confirmImport() {
+    const validItems = importValidation
+      .filter(v => v.valid)
+      .map(v => ({
+        id: uid(),
+        status: v.data.status || appConfig.primaryStatus,
+        createdAt: new Date().toISOString(),
+        timeline: [{ status: v.data.status || appConfig.primaryStatus, at: today, by: '导入' }],
+        temps: Array.isArray(v.data.temps)
+          ? v.data.temps.map(t => Number(t)).filter(Number.isFinite)
+          : (v.data.temperature !== undefined && v.data.temperature !== null ? [Number(v.data.temperature)].filter(Number.isFinite) : []),
+        ...v.data,
+      }));
+
+    if (validItems.length === 0) {
+      alert('没有可导入的有效数据');
+      return;
+    }
+
+    const merged = [...validItems, ...records];
+    persist(merged);
+    resetImportState();
   }
 
   function addRecord(event) {
@@ -864,6 +980,23 @@ function App() {
           <p>{appConfig.subtitle}</p>
         </div>
         <div className="hero-actions">
+          <div className="io-buttons">
+            <button type="button" className="io-btn export-btn" onClick={exportRecords}>
+              <Download size={18} />
+              导出JSON
+            </button>
+            <button type="button" className="io-btn import-btn" onClick={triggerImport}>
+              <Upload size={18} />
+              导入JSON
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              accept=".json,application/json"
+              onChange={handleFileChange}
+            />
+          </div>
           <button type="button" className="archive-toggle-btn" onClick={() => setShowArchivePanel(!showArchivePanel)}>
             <FolderKanban size={18} />
             {showArchivePanel ? '关闭档案管理' : '司机与车辆档案'}
@@ -1251,6 +1384,107 @@ function App() {
               <button type="submit" className="primary confirm-submit"><CheckCircle2 size={18} />确认到达</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {showImportModal && (
+        <div className="overlay" onClick={resetImportState}>
+          <div className="import-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="confirm-header">
+              <div className="confirm-title">
+                <FileJson size={18} />
+                <h2>导入运输记录预览</h2>
+              </div>
+              <button type="button" className="close-btn" onClick={resetImportState}><X size={18} /></button>
+            </div>
+
+            <div className="import-summary">
+              <div className="import-file-info">
+                <FileJson size={14} />
+                <span>{importFileName}</span>
+              </div>
+              <div className="import-stats">
+                <span className="import-stat-total">
+                  共 <strong>{importValidation.length}</strong> 条记录
+                </span>
+                <span className="import-stat-valid">
+                  <CheckCircle2 size={14} /> 有效 <strong>{importValidation.filter(v => v.valid).length}</strong> 条
+                </span>
+                <span className="import-stat-invalid">
+                  <AlertTriangle size={14} /> 异常 <strong>{importValidation.filter(v => !v.valid).length}</strong> 条
+                </span>
+              </div>
+              <p className="import-hint">
+                异常记录将被跳过，仅有效数据会被导入。导入数据将追加到现有记录之后，不会覆盖您当前的数据。
+              </p>
+            </div>
+
+            <div className="import-preview-list">
+              {importValidation.map((item) => (
+                <div
+                  key={item.index}
+                  className={'import-preview-item ' + (item.valid ? 'valid' : 'invalid')}
+                >
+                  <div className="import-preview-head">
+                    <span className="import-preview-index">#{item.index + 1}</span>
+                    {item.valid ? (
+                      <span className="import-preview-status valid-status">
+                        <CheckCircle2 size={14} /> 校验通过
+                      </span>
+                    ) : (
+                      <span className="import-preview-status invalid-status">
+                        <AlertTriangle size={14} /> 校验异常
+                      </span>
+                    )}
+                  </div>
+                  <div className="import-preview-content">
+                    <div className="import-preview-row">
+                      <span className="import-preview-label">车牌</span>
+                      <span className={!item.data.plate ? 'missing' : ''}>{item.data.plate || '-'}</span>
+                      <span className="import-preview-label">货品</span>
+                      <span className={!item.data.goods ? 'missing' : ''}>{item.data.goods || '-'}</span>
+                    </div>
+                    <div className="import-preview-row">
+                      <span className="import-preview-label">出发地</span>
+                      <span>{item.data.from || '-'}</span>
+                      <span className="import-preview-label">目的地</span>
+                      <span className={!item.data.to ? 'missing' : ''}>{item.data.to || '-'}</span>
+                    </div>
+                    <div className="import-preview-row">
+                      <span className="import-preview-label">计划到达</span>
+                      <span className={!item.data.eta ? 'missing' : ''}>{item.data.eta || '-'}</span>
+                      <span className="import-preview-label">温度数</span>
+                      <span>
+                        {Array.isArray(item.data.temps) ? item.data.temps.length : (item.data.temperature !== undefined && item.data.temperature !== null ? 1 : 0)} 条
+                      </span>
+                    </div>
+                  </div>
+                  {!item.valid && (
+                    <div className="import-preview-errors">
+                      {item.errors.map((err, i) => (
+                        <span key={i} className="import-error-tag">
+                          <AlertTriangle size={10} /> {err}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="confirm-actions">
+              <button type="button" className="cancel-btn" onClick={resetImportState}>取消</button>
+              <button
+                type="button"
+                className="primary confirm-submit"
+                onClick={confirmImport}
+                disabled={importValidation.filter(v => v.valid).length === 0}
+              >
+                <CheckCircle2 size={18} />
+                确认导入 {importValidation.filter(v => v.valid).length} 条
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>
