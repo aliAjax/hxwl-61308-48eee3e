@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
-import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus, CarFront, User, Phone, Route, Pencil, Save, FolderKanban, FileStack, TrendingUp, TrendingDown, Minus, ArrowUp, ArrowDown, Download, Upload, FileJson, ChevronDown, Layers, Settings, LogOut, FileText, Printer, Eye, Clock } from 'lucide-react';
+import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus, CarFront, User, Phone, Route, Pencil, Save, FolderKanban, FileStack, TrendingUp, TrendingDown, Minus, ArrowUp, ArrowDown, Download, Upload, FileJson, ChevronDown, Layers, Settings, LogOut, FileText, Printer, Eye, Clock, LayoutDashboard } from 'lucide-react';
 import { useWorkspace, getStorageKeys } from './hooks/useWorkspace';
 import ComplianceReport from './components/ComplianceReport';
+import ColdChainDashboard from './components/ColdChainDashboard';
 import {
   createReportSnapshot,
   buildReportRecord,
@@ -677,6 +678,7 @@ function App() {
   const [activeReportMeta, setActiveReportMeta] = useState(null);
   const [isViewingSavedReport, setIsViewingSavedReport] = useState(false);
   const [reportQuery, setReportQuery] = useState('');
+  const [showDashboard, setShowDashboard] = useState(false);
 
   useEffect(() => {
     if (!currentWorkspaceId) return;
@@ -770,6 +772,55 @@ function App() {
     setActiveReportMeta({ id: '预览中', createdAt: snapshot.generatedAt });
     setIsViewingSavedReport(false);
     setShowReportModal(true);
+  }
+
+  function handleDrillToBatches(filterParams) {
+    if (filterParams?.status) {
+      setFilters(prev => ({ ...prev, status: filterParams.status }));
+    }
+    if (filterParams?.query) {
+      setFilters(prev => ({ ...prev, query: filterParams.query }));
+    }
+    setShowDashboard(false);
+    setTimeout(() => {
+      const listPanel = document.querySelector('.list-panel');
+      if (listPanel) {
+        listPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+  }
+
+  function handleDrillToRoute(routeKey) {
+    setSelectedRoute(routeKey);
+    setShowDashboard(false);
+    setTimeout(() => {
+      const routePanel = document.querySelector('.route-board-panel');
+      if (routePanel) {
+        routePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+  }
+
+  function handleDrillToExceptions() {
+    setShowExceptionPanel(true);
+    setShowDashboard(false);
+    setTimeout(() => {
+      const exceptionPanel = document.querySelector('.exception-panel');
+      if (exceptionPanel) {
+        exceptionPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+  }
+
+  function handleDrillToReports() {
+    setShowReportPanel(true);
+    setShowDashboard(false);
+    setTimeout(() => {
+      const reportPanel = document.querySelector('.report-panel');
+      if (reportPanel) {
+        reportPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
   }
 
   function saveCurrentReport() {
@@ -1490,6 +1541,10 @@ function App() {
             <FileText size={18} />
             {showReportPanel ? '关闭报告中心' : '合规报告中心'}
           </button>
+          <button type="button" className="dashboard-toggle-btn" onClick={() => setShowDashboard(!showDashboard)}>
+            <LayoutDashboard size={18} />
+            {showDashboard ? '关闭驾驶舱' : '监控驾驶舱'}
+          </button>
           <div className="port-card">
             <span>Local Port</span>
             <strong>{appConfig.port}</strong>
@@ -1719,6 +1774,23 @@ function App() {
               </div>
             );
           })()}
+        </section>
+      )}
+
+      {showDashboard && (
+        <section className="panel dashboard-panel">
+          <ColdChainDashboard
+            records={records}
+            exceptions={exceptions}
+            reports={reports}
+            routeStats={routeStats}
+            workspaceName={currentWorkspace?.name || '默认工作区'}
+            onDrillToBatches={handleDrillToBatches}
+            onDrillToRoute={handleDrillToRoute}
+            onDrillToExceptions={handleDrillToExceptions}
+            onDrillToReports={handleDrillToReports}
+            onGenerateReport={generateReportForBatch}
+          />
         </section>
       )}
 
