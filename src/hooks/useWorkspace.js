@@ -19,6 +19,7 @@ export function getStorageKeys(workspaceId) {
     records: `${STORAGE_PREFIX}-${workspaceId}-records`,
     archives: `${STORAGE_PREFIX}-${workspaceId}-archives`,
     exceptions: `${STORAGE_PREFIX}-${workspaceId}-exceptions`,
+    reports: `${STORAGE_PREFIX}-${workspaceId}-reports`,
   };
 }
 
@@ -130,6 +131,7 @@ export function useWorkspace() {
     localStorage.setItem(keys.records, JSON.stringify([]));
     localStorage.setItem(keys.archives, JSON.stringify([]));
     localStorage.setItem(keys.exceptions, JSON.stringify([]));
+    localStorage.setItem(keys.reports, JSON.stringify([]));
     const next = [...workspaces, newWs];
     setWorkspaces(next);
     saveWorkspacesMeta(next);
@@ -156,6 +158,7 @@ export function useWorkspace() {
     localStorage.removeItem(keys.records);
     localStorage.removeItem(keys.archives);
     localStorage.removeItem(keys.exceptions);
+    localStorage.removeItem(keys.reports);
 
     const next = workspaces.filter(w => w.id !== id);
     setWorkspaces(next);
@@ -178,6 +181,7 @@ export function useWorkspace() {
       records: JSON.parse(localStorage.getItem(keys.records) || '[]'),
       archives: JSON.parse(localStorage.getItem(keys.archives) || '[]'),
       exceptions: JSON.parse(localStorage.getItem(keys.exceptions) || '[]'),
+      reports: JSON.parse(localStorage.getItem(keys.reports) || '[]'),
     };
     return data;
   }, [workspaces]);
@@ -188,6 +192,7 @@ export function useWorkspace() {
     const sourceRecords = Array.isArray(data.records) ? data.records : [];
     const sourceArchives = Array.isArray(data.archives) ? data.archives : [];
     const sourceExceptions = Array.isArray(data.exceptions) ? data.exceptions : [];
+    const sourceReports = Array.isArray(data.reports) ? data.reports : [];
 
     if (asNew) {
       const baseName = (data.workspace?.name || customName || '导入工作区').trim();
@@ -207,6 +212,7 @@ export function useWorkspace() {
       localStorage.setItem(keys.records, JSON.stringify(sourceRecords));
       localStorage.setItem(keys.archives, JSON.stringify(sourceArchives));
       localStorage.setItem(keys.exceptions, JSON.stringify(sourceExceptions));
+      localStorage.setItem(keys.reports, JSON.stringify(sourceReports));
       const next = [...workspaces, newWs];
       setWorkspaces(next);
       saveWorkspacesMeta(next);
@@ -217,6 +223,7 @@ export function useWorkspace() {
       localStorage.setItem(keys.records, JSON.stringify(sourceRecords));
       localStorage.setItem(keys.archives, JSON.stringify(sourceArchives));
       localStorage.setItem(keys.exceptions, JSON.stringify(sourceExceptions));
+      localStorage.setItem(keys.reports, JSON.stringify(sourceReports));
       return true;
     }
   }, [workspaces, currentWorkspaceId]);

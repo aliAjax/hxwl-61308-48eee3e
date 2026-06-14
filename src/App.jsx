@@ -1,6 +1,15 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
-import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus, CarFront, User, Phone, Route, Pencil, Save, FolderKanban, FileStack, TrendingUp, TrendingDown, Minus, ArrowUp, ArrowDown, Download, Upload, FileJson, ChevronDown, Layers, Settings, LogOut } from 'lucide-react';
+import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus, CarFront, User, Phone, Route, Pencil, Save, FolderKanban, FileStack, TrendingUp, TrendingDown, Minus, ArrowUp, ArrowDown, Download, Upload, FileJson, ChevronDown, Layers, Settings, LogOut, FileText, Printer, Eye, Clock } from 'lucide-react';
 import { useWorkspace, getStorageKeys } from './hooks/useWorkspace';
+import ComplianceReport from './components/ComplianceReport';
+import {
+  createReportSnapshot,
+  buildReportRecord,
+  computeTemperatureStats,
+  formatDateTime,
+  downloadReportAsJson,
+  triggerPrint,
+} from './utils/reportUtils';
 import './App.css';
 
 const archiveConfig = {
@@ -640,6 +649,19 @@ function loadExceptionsFor(keys) {
   return withIds(exceptionConfig.seed);
 }
 
+function loadReportsFor(keys) {
+  if (!keys) return [];
+  const raw = localStorage.getItem(keys.reports);
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 function App() {
   const workspace = useWorkspace();
   const { workspaces, currentWorkspace, currentWorkspaceId, storageKeys, switchWorkspace, createWorkspace, renameWorkspace, deleteWorkspace, exportWorkspace, importWorkspace } = workspace;
@@ -647,6 +669,14 @@ function App() {
   const [records, setRecords] = useState(() => storageKeys ? loadRecordsFor(storageKeys) : withIds(appConfig.seed));
   const [archives, setArchives] = useState(() => storageKeys ? loadArchivesFor(storageKeys) : withIds(archiveConfig.seed));
   const [exceptions, setExceptions] = useState(() => storageKeys ? loadExceptionsFor(storageKeys) : withIds(exceptionConfig.seed));
+  const [reports, setReports] = useState(() => storageKeys ? loadReportsFor(storageKeys) : []);
+
+  const [showReportPanel, setShowReportPanel] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [activeReportData, setActiveReportData] = useState(null);
+  const [activeReportMeta, setActiveReportMeta] = useState(null);
+  const [isViewingSavedReport, setIsViewingSavedReport] = useState(false);
+  const [reportQuery, setReportQuery] = useState('');
 
   useEffect(() => {
     if (!currentWorkspaceId) return;
@@ -654,9 +684,13 @@ function App() {
     setRecords(loadRecordsFor(keys));
     setArchives(loadArchivesFor(keys));
     setExceptions(loadExceptionsFor(keys));
+    setReports(loadReportsFor(keys));
     setSelected(null);
     setSelectedRoute(null);
     setConfirmTarget(null);
+    setShowReportModal(false);
+    setActiveReportData(null);
+    setActiveReportMeta(null);
   }, [currentWorkspaceId]);
 
   const [form, setForm] = useState(appConfig.defaultValues);
@@ -719,8 +753,63 @@ function App() {
     if (storageKeys) localStorage.setItem(storageKeys.exceptions, JSON.stringify(clean));
   }
 
+  function persistReports(next) {
+    setReports(next);
+    if (storageKeys) localStorage.setItem(storageKeys.reports, JSON.stringify(next));
+  }
+
   function getBatchLabel(record) {
     return `${record.goods} · ${record.plate} · ${record.from}→${record.to}`;
+  }
+
+  function generateReportForBatch(batch) {
+    if (!batch) return;
+    const batchExceptions = getExceptionsForBatch(batch.id, exceptions);
+    const snapshot = createReportSnapshot(batch, batchExceptions);
+    setActiveReportData(snapshot);
+    setActiveReportMeta({ id: '预览中', createdAt: snapshot.generatedAt });
+    setIsViewingSavedReport(false);
+    setShowReportModal(true);
+  }
+
+  function saveCurrentReport() {
+    if (!activeReportData || isViewingSavedReport) return;
+    const batchId = activeReportData.batch?.id;
+    if (!batchId) return;
+    const batchLabel = getBatchLabel(activeReportData.batch);
+    const newReport = buildReportRecord(batchId, batchLabel, activeReportData);
+    const next = [newReport, ...reports];
+    persistReports(next);
+    setActiveReportMeta({ id: newReport.id, createdAt: newReport.createdAt });
+    setIsViewingSavedReport(true);
+    alert('报告已保存为历史快照！后续批次数据变更不会影响此报告。');
+  }
+
+  function openSavedReport(report) {
+    setActiveReportData(report.snapshot);
+    setActiveReportMeta({ id: report.id, createdAt: report.createdAt });
+    setIsViewingSavedReport(true);
+    setShowReportModal(true);
+  }
+
+  function deleteReport(id) {
+    if (!confirm('确定要删除此历史报告吗？此操作不可恢复。')) return;
+    persistReports(reports.filter((r) => r.id !== id));
+  }
+
+  function printActiveReport() {
+    triggerPrint();
+  }
+
+  function downloadActiveReportJson() {
+    if (!activeReportData) return;
+    const fullReport = {
+      id: activeReportMeta?.id,
+      batchLabel: activeReportData.batch ? getBatchLabel(activeReportData.batch) : '',
+      createdAt: activeReportMeta?.createdAt || new Date().toISOString(),
+      snapshot: activeReportData,
+    };
+    downloadReportAsJson(fullReport);
   }
 
   function openExceptionModal(batchId = '') {
@@ -1397,6 +1486,10 @@ function App() {
             <AlertTriangle size={18} />
             {showExceptionPanel ? '关闭异常登记' : '交接异常登记'}
           </button>
+          <button type="button" className="report-toggle-btn" onClick={() => setShowReportPanel(!showReportPanel)}>
+            <FileText size={18} />
+            {showReportPanel ? '关闭报告中心' : '合规报告中心'}
+          </button>
           <div className="port-card">
             <span>Local Port</span>
             <strong>{appConfig.port}</strong>
@@ -1548,6 +1641,84 @@ function App() {
               </div>
             </div>
           </div>
+        </section>
+      )}
+
+      {showReportPanel && (
+        <section className="panel report-panel">
+          <div className="panel-title">
+            <FileText size={18} />
+            <h2>冷链合规追溯报告中心</h2>
+            <span className="report-count">共 {reports.length} 份历史报告</span>
+          </div>
+          <div className="toolbar">
+            <div className="search">
+              <Search size={16} />
+              <input value={reportQuery} onChange={(e) => setReportQuery(e.target.value)} placeholder="搜索批次/报告编号..." />
+            </div>
+          </div>
+          {(() => {
+            const filteredReports = reports.filter((r) => {
+              if (!reportQuery) return true;
+              return `${r.batchLabel}${r.id}`.includes(reportQuery);
+            });
+            return filteredReports.length === 0 ? (
+              <div className="report-empty-list">
+                <FileText size={40} />
+                <p>{reports.length === 0 ? '暂无历史报告。点击任意运输批次的"生成报告"按钮创建合规追溯报告。' : '没有匹配的报告'}</p>
+              </div>
+            ) : (
+              <div className="report-list">
+                {filteredReports.map((report) => {
+                  const stats = computeTemperatureStats(report.snapshot?.batch?.temps);
+                  const exCount = report.snapshot?.exceptions?.length || 0;
+                  return (
+                    <div className="report-card" key={report.id}>
+                      <div className="report-card-head">
+                        <div>
+                          <div className="report-card-title">冷链合规追溯报告</div>
+                        </div>
+                        <div className="report-card-actions">
+                          <button type="button" title="查看报告" onClick={() => openSavedReport(report)}>
+                            <Eye size={12} />查看
+                          </button>
+                          <button type="button" title="下载JSON" onClick={() => downloadReportAsJson(report)}>
+                            <Download size={12} />下载
+                          </button>
+                          <button type="button" className="ghost-danger" title="删除" onClick={() => deleteReport(report.id)}>
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="report-card-batch">{report.batchLabel || '关联批次'}</div>
+                      <div className="report-card-meta">
+                        <span><Clock size={12} /> 生成：{formatDateTime(report.createdAt)}</span>
+                        <span>编号：{report.id}</span>
+                      </div>
+                      <div className="report-card-stats">
+                        <span className={'report-card-stat ' + (stats.hasHot ? 'danger' : 'success')}>
+                          <ThermometerSnowflake size={12} /> {stats.hasHot ? '存在超温' : '温度合规'}
+                        </span>
+                        <span className="report-card-stat">
+                          读数 {stats.count} 条
+                        </span>
+                        {stats.hasHot && (
+                          <span className="report-card-stat danger">
+                            超温 {stats.hotCount} 处
+                          </span>
+                        )}
+                        {exCount > 0 && (
+                          <span className="report-card-stat danger">
+                            <AlertTriangle size={12} /> 异常 {exCount} 条
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </section>
       )}
 
@@ -1707,6 +1878,7 @@ function App() {
                   <p className="record-detail">{`司机${item.driver}｜最近温度${latestTemp(item)}℃｜${hasHotTemp(item) ? '已超温' : '温度正常'}`}</p>
                   {(item.conflict || hasOverlap(item, records)) && <div className="warning"><AlertTriangle size={15} />发现冲突</div>}
                   <div className="actions" onClick={(event) => event.stopPropagation()}>
+                    <button type="button" className="gen-report-btn" onClick={() => generateReportForBatch(item)}><FileText size={14} />生成报告</button>
                     {item.status === '运输中' && (
                       <button type="button" className="arrive-btn" onClick={() => openConfirm(item)}><Truck size={14} />确认到达</button>
                     )}
@@ -1764,6 +1936,11 @@ function App() {
               <h3>{selected.goods}</h3>
               <p>{`${selected.plate} · ${selected.from} → ${selected.to}`}</p>
               <p>{`司机${selected.driver}｜最近温度${latestTemp(selected)}℃｜${hasHotTemp(selected) ? '已超温' : '温度正常'}`}</p>
+              <div className="actions" style={{ marginTop: '8px' }}>
+                <button type="button" className="gen-report-btn" onClick={() => generateReportForBatch(selected)}>
+                  <FileText size={14} />生成合规报告
+                </button>
+              </div>
               {selected.arrival && (
                 <div className="arrival-detail">
                   <strong>到达确认信息</strong>
@@ -2134,6 +2311,42 @@ function App() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {showReportModal && activeReportData && (
+        <div className="report-modal-overlay" onClick={() => setShowReportModal(false)}>
+          <div className="report-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="report-modal-header">
+              <div className="report-modal-title">
+                <FileText size={18} />
+                <h2>{isViewingSavedReport ? '历史报告快照' : '报告预览'}</h2>
+              </div>
+              <div className="report-modal-actions">
+                {!isViewingSavedReport && (
+                  <button type="button" className="report-modal-btn primary" onClick={saveCurrentReport}>
+                    <Save size={14} />保存为快照
+                  </button>
+                )}
+                <button type="button" className="report-modal-btn success" onClick={printActiveReport}>
+                  <Printer size={14} />打印
+                </button>
+                <button type="button" className="report-modal-btn" onClick={downloadActiveReportJson}>
+                  <Download size={14} />导出JSON
+                </button>
+                <button type="button" className="report-close-btn" onClick={() => setShowReportModal(false)}>
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <div className="report-modal-content">
+              <ComplianceReport
+                snapshot={activeReportData}
+                reportMeta={activeReportMeta}
+                isSnapshot={isViewingSavedReport}
+              />
+            </div>
+          </div>
         </div>
       )}
     </main>
