@@ -28,10 +28,17 @@ export function computeTemperatureStats(temps) {
       hasHot: false,
     };
   }
-  const max = Math.max(...numbers);
-  const min = Math.min(...numbers);
-  const avg = numbers.reduce((s, v) => s + v, 0) / numbers.length;
-  const hotCount = numbers.filter((v) => v > HOT_THRESHOLD).length;
+  let max = -Infinity;
+  let min = Infinity;
+  let sum = 0;
+  let hotCount = 0;
+  for (const value of numbers) {
+    if (value > max) max = value;
+    if (value < min) min = value;
+    if (value > HOT_THRESHOLD) hotCount++;
+    sum += value;
+  }
+  const avg = sum / numbers.length;
   return {
     max,
     min,

@@ -28,6 +28,11 @@ function latestTemp(item) {
   return temps[temps.length - 1];
 }
 
+function dateKeyOf(item) {
+  const dateText = item.eta || item.createdAt || item.arrivedAt || item.updatedAt || '';
+  return String(dateText).slice(0, 10);
+}
+
 function getTrend(temps) {
   if (temps.length < 2) return { type: 'stable', label: '数据不足', diff: 0 };
   const recent = temps.slice(-Math.min(5, temps.length));
@@ -223,12 +228,13 @@ export default function ColdChainDashboard({
   const today = new Date().toISOString().slice(0, 10);
 
   const dashboardData = useMemo(() => {
-    const totalBatches = records.length;
-    const inTransit = records.filter(r => r.status === '运输中').length;
-    const abnormalBatches = records.filter(r => r.status === '异常' || hasHotTemp(r)).length;
-    const arrivedBatches = records.filter(r => r.status === '已到达').length;
+    const todayRecords = records.filter(r => dateKeyOf(r) === today);
+    const totalBatches = todayRecords.length;
+    const inTransit = todayRecords.filter(r => r.status === '运输中').length;
+    const abnormalBatches = todayRecords.filter(r => r.status === '异常' || hasHotTemp(r)).length;
+    const arrivedBatches = todayRecords.filter(r => r.status === '已到达').length;
 
-    const allTemps = records.flatMap(r => r.temps || [Number(r.temperature)]).map(Number).filter(Number.isFinite);
+    const allTemps = todayRecords.flatMap(r => r.temps || [Number(r.temperature)]).map(Number).filter(Number.isFinite);
     const overallTempStats = computeTemperatureStats(allTemps);
 
     const activeExceptions = exceptions.filter(e => e.status === '待处理' || e.status === '处理中').length;
@@ -279,10 +285,11 @@ export default function ColdChainDashboard({
       routeRiskLevel,
       totalReports: reports.length,
     };
-  }, [records, exceptions, reports, routeStats]);
+  }, [records, exceptions, reports, routeStats, today]);
 
   const tempTrend = useMemo(() => {
     const recentRecords = records
+      .filter(r => dateKeyOf(r) === today)
       .filter(r => r.temps && r.temps.length >= 2)
       .slice(0, 10);
     if (recentRecords.length === 0) return { type: 'stable', label: '数据不足' };
@@ -301,7 +308,7 @@ export default function ColdChainDashboard({
       return { type: 'down', label: `${downCount} 批温度下降` };
     }
     return { type: 'stable', label: '整体温度平稳' };
-  }, [records]);
+  }, [records, today]);
 
   const {
     totalBatches,
@@ -318,7 +325,7 @@ export default function ColdChainDashboard({
     totalReports,
   } = dashboardData;
 
-  const isEmpty = totalBatches === 0;
+  const isEmpty = records.length === 0;
 
   return (
     <div className="cold-chain-dashboard">
@@ -370,7 +377,7 @@ export default function ColdChainDashboard({
               value={totalBatches}
               subValue={`运输中 ${inTransit} · 已到达 ${arrivedBatches}`}
               clickable
-              onClick={() => onDrillToBatches?.({ status: '全部' })}
+              onClick={() => onDrillToBatches?.({ status: '全部', date: today })}
               highlight
             />
             <StatCard
@@ -381,7 +388,7 @@ export default function ColdChainDashboard({
               trend={abnormalBatches > 0 ? '需重点关注' : '运行良好'}
               trendType={abnormalBatches > 0 ? 'up' : 'stable'}
               clickable
-              onClick={() => onDrillToBatches?.({ status: '异常' })}
+              onClick={() => onDrillToBatches?.({ status: '异常', date: today })}
               danger={abnormalBatches > 0}
             />
             <StatCard
@@ -392,7 +399,7 @@ export default function ColdChainDashboard({
               trend={tempTrend.label}
               trendType={tempTrend.type}
               clickable
-              onClick={() => onDrillToBatches?.({ status: '全部' })}
+              onClick={() => onDrillToBatches?.({ status: '全部', date: today })}
               accent
             />
             <StatCard

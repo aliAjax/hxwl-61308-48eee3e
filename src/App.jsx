@@ -276,6 +276,11 @@ function hasHotTemp(item) {
   return temps.some((value) => Number(value) > 2);
 }
 
+function recordDateKey(item) {
+  const dateText = item.eta || item.createdAt || item.arrivedAt || item.updatedAt || '';
+  return String(dateText).slice(0, 10);
+}
+
 function priorityRank(value) {
   return { 危急: 0, 加急: 1, 常规: 2, 高: 0, 中: 1, 低: 2 }[value] ?? 9;
 }
@@ -696,7 +701,7 @@ function App() {
   }, [currentWorkspaceId]);
 
   const [form, setForm] = useState(appConfig.defaultValues);
-  const [filters, setFilters] = useState({ query: '', status: '全部' });
+  const [filters, setFilters] = useState({ query: '', status: '全部', date: '' });
   const [selected, setSelected] = useState(null);
   const [confirmTarget, setConfirmTarget] = useState(null);
   const [arrivalForm, setArrivalForm] = useState({ arrivedAt: '', signee: '', unloadTemp: '', remark: '' });
@@ -775,12 +780,12 @@ function App() {
   }
 
   function handleDrillToBatches(filterParams) {
-    if (filterParams?.status) {
-      setFilters(prev => ({ ...prev, status: filterParams.status }));
-    }
-    if (filterParams?.query) {
-      setFilters(prev => ({ ...prev, query: filterParams.query }));
-    }
+    setFilters(prev => ({
+      ...prev,
+      status: filterParams?.status || prev.status,
+      query: filterParams?.query || '',
+      date: filterParams?.date || '',
+    }));
     setShowDashboard(false);
     setTimeout(() => {
       const listPanel = document.querySelector('.list-panel');
@@ -1380,6 +1385,7 @@ function App() {
     return records
       .filter((item) => !filters.query || `${item.plate}${item.goods}${item.driver}`.includes(filters.query))
       .filter((item) => filters.status === '全部' || item.status === filters.status)
+      .filter((item) => !filters.date || recordDateKey(item) === filters.date)
       .filter((item) => !selectedRoute || `${item.from}→${item.to}` === selectedRoute)
       .filter((item) => !filterHasException || exceptions.some((ex) => ex.batchId === item.id))
       .sort((a, b) => {
@@ -1925,6 +1931,11 @@ function App() {
               />
               <span>仅显示有关联异常批次</span>
             </label>
+            {filters.date && (
+              <button type="button" className="clear-route-btn" onClick={() => setFilters({ ...filters, date: '' })}>
+                <X size={14} />清除今日筛选
+              </button>
+            )}
           </div>
 
           <div className="records">
