@@ -346,6 +346,30 @@ function ReportTemperatureChart({ temps, hotThreshold }) {
           </div>
         </div>
       )}
+
+      {normalized.length > 0 && (
+        <div className="report-all-readings">
+          <div className="report-readings-title">
+            <ThermometerSnowflake size={14} />
+            <strong>全量温度读数明细</strong>
+            <span>共 {normalized.length} 条</span>
+          </div>
+          <div className="report-readings-list">
+            {normalized.map((r, i) => (
+              <span
+                key={i}
+                className={'report-reading-chip ' + (r.value > hotThreshold ? 'hot' : '')}
+                title={r.time ? `采集时间：${formatDateTime(r.time)}` : `第${i + 1}次读数`}
+              >
+                <em>{tempLabel(r, i)}</em>
+                <b>{r.value.toFixed(1)}℃</b>
+                {r.time && <span className="report-reading-time">{formatDateTime(r.time)}</span>}
+                {r.value > hotThreshold && <AlertTriangle size={10} />}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
