@@ -16,11 +16,11 @@ import {
   CalendarDays,
   BarChart3,
 } from 'lucide-react';
-import { computeTemperatureStats, formatDateTime, REPORT_HOT_THRESHOLD } from '../utils/reportUtils';
+import { computeTemperatureStats, formatDateTime, DEFAULT_HOT_THRESHOLD } from '../utils/reportUtils';
 
-function hasHotTemp(item) {
+function hasHotTemp(item, threshold) {
   const temps = item.temps || [Number(item.temperature)];
-  return temps.some((value) => Number(value) > REPORT_HOT_THRESHOLD);
+  return temps.some((value) => Number(value) > threshold);
 }
 
 function latestTemp(item) {
@@ -44,14 +44,14 @@ function getTrend(temps) {
   return { type: 'down', label: '呈下降趋势', diff };
 }
 
-function downsample(data, maxPoints) {
+function downsample(data, maxPoints, hotThreshold) {
   if (data.length <= maxPoints) return data.map((v, i) => ({ idx: i, value: v }));
   const HOT_MAX_RATIO = 0.35;
   const maxHotPoints = Math.max(4, Math.floor(maxPoints * HOT_MAX_RATIO));
   const minIndexGap = Math.max(2, Math.floor(data.length / maxPoints * 0.8));
   const allHotPoints = [];
   for (let i = 0; i < data.length; i++) {
-    if (data[i] > REPORT_HOT_THRESHOLD) allHotPoints.push({ idx: i, value: data[i] });
+    if (data[i] > hotThreshold) allHotPoints.push({ idx: i, value: data[i] });
   }
   allHotPoints.sort((a, b) => b.value - a.value);
   const hotKept = [];
@@ -110,9 +110,9 @@ function downsample(data, maxPoints) {
   return finalResult;
 }
 
-function MiniTempChart({ temps, width = 200, height = 60 }) {
+function MiniTempChart({ temps, hotThreshold, width = 200, height = 60 }) {
   const numbers = (temps || []).map(Number).filter(Number.isFinite);
-  const sampled = useMemo(() => downsample(numbers, 30), [numbers]);
+  const sampled = useMemo(() => downsample(numbers, 30, hotThreshold), [numbers, hotThreshold]);
 
   if (numbers.length === 0) {
     return (
@@ -126,9 +126,9 @@ function MiniTempChart({ temps, width = 200, height = 60 }) {
   const plotW = width - padL - padR;
   const plotH = height - padT - padB;
 
-  const stats = computeTemperatureStats(temps);
+  const stats = computeTemperatureStats(temps, hotThreshold);
   const yMin = Math.min(-3, Math.floor(stats.min) - 1);
-  const yMax = Math.max(REPORT_HOT_THRESHOLD + 1, Math.ceil(stats.max) + 1);
+  const yMax = Math.max(hotThreshold + 1, Math.ceil(stats.max) + 1);
   const yRange = yMax - yMin;
 
   function yToPx(v) {
@@ -153,9 +153,9 @@ function MiniTempChart({ temps, width = 200, height = 60 }) {
     <svg viewBox={`0 0 ${width} ${height}`} className="mini-temp-chart" preserveAspectRatio="none">
       <line
         x1={padL}
-        y1={yToPx(REPORT_HOT_THRESHOLD)}
+        y1={yToPx(hotThreshold)}
         x2={width - padR}
-        y2={yToPx(REPORT_HOT_THRESHOLD)}
+        y2={yToPx(hotThreshold)}
         stroke={hasHot ? '#dc2626' : '#e5e7eb'}
         strokeWidth="0.8"
         strokeDasharray="3 2"
@@ -219,6 +219,7 @@ export default function ColdChainDashboard({
   reports = [],
   routeStats = [],
   workspaceName = '默认工作区',
+  hotThreshold = DEFAULT_HOT_THRESHOLD,
   onDrillToBatches,
   onDrillToRoute,
   onDrillToExceptions,
@@ -231,11 +232,11 @@ export default function ColdChainDashboard({
     const todayRecords = records.filter(r => dateKeyOf(r) === today);
     const totalBatches = todayRecords.length;
     const inTransit = todayRecords.filter(r => r.status === '运输中').length;
-    const abnormalBatches = todayRecords.filter(r => r.status === '异常' || hasHotTemp(r)).length;
+    const abnormalBatches = todayRecords.filter(r => r.status === '异常' || hasHotTemp(r, hotThreshold)).length;
     const arrivedBatches = todayRecords.filter(r => r.status === '已到达').length;
 
     const allTemps = todayRecords.flatMap(r => r.temps || [Number(r.temperature)]).map(Number).filter(Number.isFinite);
-    const overallTempStats = computeTemperatureStats(allTemps);
+    const overallTempStats = computeTemperatureStats(allTemps, hotThreshold);
 
     const activeExceptions = exceptions.filter(e => e.status === '待处理' || e.status === '处理中').length;
     const resolvedExceptions = exceptions.filter(e => e.status === '已解决' || e.status === '已关闭').length;
@@ -285,7 +286,7 @@ export default function ColdChainDashboard({
       routeRiskLevel,
       totalReports: reports.length,
     };
-  }, [records, exceptions, reports, routeStats, today]);
+  }, [records, exceptions, reports, routeStats, today, hotThreshold]);
 
   const tempTrend = useMemo(() => {
     const recentRecords = records
@@ -384,7 +385,7 @@ export default function ColdChainDashboard({
               icon={AlertTriangle}
               label="异常批次"
               value={abnormalBatches}
-              subValue={abnormalBatches > 0 ? `超温阈值 ${REPORT_HOT_THRESHOLD}℃` : '全部温度合规'}
+              subValue={abnormalBatches > 0 ? `超温阈值 ${hotThreshold}℃` : '全部温度合规'}
               trend={abnormalBatches > 0 ? '需重点关注' : '运行良好'}
               trendType={abnormalBatches > 0 ? 'up' : 'stable'}
               clickable
@@ -461,7 +462,7 @@ export default function ColdChainDashboard({
                           {route.abnormalRate}%
                         </span>
                       </div>
-                      <MiniTempChart temps={Array.isArray(route.avgTemp) ? route.avgTemp : [Number(route.avgTemp)]} />
+                      <MiniTempChart temps={Array.isArray(route.avgTemp) ? route.avgTemp : [Number(route.avgTemp)]} hotThreshold={hotThreshold} />
                     </div>
                   ))}
                 </div>
@@ -496,7 +497,7 @@ export default function ColdChainDashboard({
                     const diffMs = etaDate - now;
                     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
                     const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-                    const isHot = hasHotTemp(batch);
+                    const isHot = hasHotTemp(batch, hotThreshold);
 
                     return (
                       <div
@@ -564,7 +565,7 @@ export default function ColdChainDashboard({
                     const diffMs = now - etaDate;
                     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
                     const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-                    const isHot = hasHotTemp(batch);
+                    const isHot = hasHotTemp(batch, hotThreshold);
 
                     return (
                       <div
@@ -671,7 +672,7 @@ export default function ColdChainDashboard({
             <div className="temp-overview-stats">
               <div className="temp-overview-stat">
                 <span className="temp-overview-label">最高温</span>
-                <strong className={`temp-overview-value ${overallTempStats.max > REPORT_HOT_THRESHOLD ? 'hot' : ''}`}>
+                <strong className={`temp-overview-value ${overallTempStats.max > hotThreshold ? 'hot' : ''}`}>
                   {overallTempStats.max.toFixed(1)}℃
                 </strong>
               </div>
@@ -681,7 +682,7 @@ export default function ColdChainDashboard({
               </div>
               <div className="temp-overview-stat">
                 <span className="temp-overview-label">平均温</span>
-                <strong className={`temp-overview-value ${overallTempStats.avg > REPORT_HOT_THRESHOLD ? 'hot' : ''}`}>
+                <strong className={`temp-overview-value ${overallTempStats.avg > hotThreshold ? 'hot' : ''}`}>
                   {overallTempStats.avg.toFixed(1)}℃
                 </strong>
               </div>

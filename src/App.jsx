@@ -271,9 +271,9 @@ function latestTemp(item) {
   return temps[temps.length - 1];
 }
 
-function hasHotTemp(item) {
+function hasHotTemp(item, threshold = 2) {
   const temps = item.temps || [Number(item.temperature)];
-  return temps.some((value) => Number(value) > 2);
+  return temps.some((value) => Number(value) > threshold);
 }
 
 function recordDateKey(item) {
@@ -295,16 +295,14 @@ function statusClass(status) {
   return ['status-a', 'status-b', 'status-c', 'status-d'][index] || 'status-a';
 }
 
-const HOT_THRESHOLD = 2;
-
-function downsample(data, maxPoints) {
+function downsample(data, maxPoints, hotThreshold = 2) {
   if (data.length <= maxPoints) return data.map((v, i) => ({ idx: i, value: v }));
   const HOT_MAX_RATIO = 0.35;
   const maxHotPoints = Math.max(4, Math.floor(maxPoints * HOT_MAX_RATIO));
   const minIndexGap = Math.max(2, Math.floor(data.length / maxPoints * 0.8));
   const allHotPoints = [];
   for (let i = 0; i < data.length; i++) {
-    if (data[i] > HOT_THRESHOLD) allHotPoints.push({ idx: i, value: data[i] });
+    if (data[i] > hotThreshold) allHotPoints.push({ idx: i, value: data[i] });
   }
   allHotPoints.sort((a, b) => b.value - a.value);
   const hotKept = [];
@@ -374,7 +372,7 @@ function getTrend(temps) {
   return { type: 'down', label: '呈下降趋势', diff };
 }
 
-function TemperatureCurveDetail({ temps }) {
+function TemperatureCurveDetail({ temps, hotThreshold = 2 }) {
   const numbers = (temps || []).map(Number).filter(Number.isFinite);
   const stats = useMemo(() => {
     if (numbers.length === 0) {
@@ -383,12 +381,12 @@ function TemperatureCurveDetail({ temps }) {
     const max = Math.max(...numbers);
     const min = Math.min(...numbers);
     const avg = numbers.reduce((s, v) => s + v, 0) / numbers.length;
-    const hotCount = numbers.filter(v => v > HOT_THRESHOLD).length;
+    const hotCount = numbers.filter(v => v > hotThreshold).length;
     const trend = getTrend(numbers);
     return { max, min, avg, hotCount, trend };
-  }, [numbers]);
+  }, [numbers, hotThreshold]);
 
-  const sampled = useMemo(() => downsample(numbers, 60), [numbers]);
+  const sampled = useMemo(() => downsample(numbers, 60, hotThreshold), [numbers, hotThreshold]);
 
   const chartW = 560;
   const chartH = 200;
@@ -397,7 +395,7 @@ function TemperatureCurveDetail({ temps }) {
   const plotH = chartH - padT - padB;
 
   const yMin = Math.min(-3, Math.floor(stats.min) - 1);
-  const yMax = Math.max(HOT_THRESHOLD + 2, Math.ceil(stats.max) + 1);
+  const yMax = Math.max(hotThreshold + 2, Math.ceil(stats.max) + 1);
   const yRange = yMax - yMin;
 
   function yToPx(v) {
@@ -440,7 +438,7 @@ function TemperatureCurveDetail({ temps }) {
             <ArrowUp size={12} /> 最高温
           </div>
           <strong className="temp-stat-value">{stats.max.toFixed(1)}℃</strong>
-          {stats.max > HOT_THRESHOLD && <span className="temp-stat-tag hot">超温</span>}
+          {stats.max > hotThreshold && <span className="temp-stat-tag hot">超温</span>}
         </div>
         <div className="temp-stat-card">
           <div className="temp-stat-label">
@@ -451,14 +449,14 @@ function TemperatureCurveDetail({ temps }) {
         <div className="temp-stat-card">
           <div className="temp-stat-label">平均温</div>
           <strong className="temp-stat-value">{stats.avg.toFixed(1)}℃</strong>
-          {stats.avg > HOT_THRESHOLD && <span className="temp-stat-tag hot">偏高</span>}
+          {stats.avg > hotThreshold && <span className="temp-stat-tag hot">偏高</span>}
         </div>
         <div className="temp-stat-card">
           <div className="temp-stat-label">超温点</div>
           <strong className={'temp-stat-value ' + (stats.hotCount > 0 ? 'hot-value' : '')}>
             {stats.hotCount}
           </strong>
-          <span className="temp-stat-sub">阈值 {HOT_THRESHOLD}℃</span>
+          <span className="temp-stat-sub">阈值 {hotThreshold}℃</span>
         </div>
       </div>
 
@@ -491,8 +489,8 @@ function TemperatureCurveDetail({ temps }) {
                 x2={chartW - padR}
                 y2={yToPx(tick)}
                 stroke="#e5e7eb"
-                strokeDasharray={tick === HOT_THRESHOLD ? '' : '3 3'}
-                strokeWidth={tick === HOT_THRESHOLD ? 1.5 : 1}
+                strokeDasharray={tick === hotThreshold ? '' : '3 3'}
+                strokeWidth={tick === hotThreshold ? 1.5 : 1}
               />
               <text x={padL - 8} y={yToPx(tick) + 4} textAnchor="end" fontSize="11" fill="#667085">
                 {tick}℃
@@ -503,17 +501,17 @@ function TemperatureCurveDetail({ temps }) {
           {numbers.length > 0 && (
             <line
               x1={padL}
-              y1={yToPx(HOT_THRESHOLD)}
+              y1={yToPx(hotThreshold)}
               x2={chartW - padR}
-              y2={yToPx(HOT_THRESHOLD)}
+              y2={yToPx(hotThreshold)}
               stroke="#dc2626"
               strokeWidth="1.5"
               strokeDasharray="6 4"
             />
           )}
           {numbers.length > 0 && (
-            <text x={chartW - padR - 4} y={yToPx(HOT_THRESHOLD) - 6} textAnchor="end" fontSize="11" fill="#dc2626" fontWeight="700">
-              超温阈值 {HOT_THRESHOLD}℃
+            <text x={chartW - padR - 4} y={yToPx(hotThreshold) - 6} textAnchor="end" fontSize="11" fill="#dc2626" fontWeight="700">
+              超温阈值 {hotThreshold}℃
             </text>
           )}
 
@@ -535,7 +533,7 @@ function TemperatureCurveDetail({ temps }) {
             const circles = [];
             for (let i = 0; i < sampled.length; i++) {
               const p = sampled[i];
-              const isHot = p.value > HOT_THRESHOLD;
+              const isHot = p.value > hotThreshold;
               const x = xToPx(i, sampled.length);
               const y = yToPx(p.value);
               let tooClose = false;
@@ -601,12 +599,12 @@ function TemperatureCurveDetail({ temps }) {
             numbers.map((v, i) => (
               <span
                 key={i}
-                className={'temp-reading-chip ' + (v > HOT_THRESHOLD ? 'hot' : '')}
+                className={'temp-reading-chip ' + (v > hotThreshold ? 'hot' : '')}
                 title={`第${i + 1}次读数`}
               >
                 <em>#{i + 1}</em>
                 <b>{v.toFixed(1)}℃</b>
-                {v > HOT_THRESHOLD && <AlertTriangle size={10} />}
+                {v > hotThreshold && <AlertTriangle size={10} />}
               </span>
             ))
           )}
@@ -670,7 +668,7 @@ function loadReportsFor(keys) {
 
 function App() {
   const workspace = useWorkspace();
-  const { workspaces, currentWorkspace, currentWorkspaceId, storageKeys, switchWorkspace, createWorkspace, renameWorkspace, deleteWorkspace, exportWorkspace, importWorkspace } = workspace;
+  const { workspaces, currentWorkspace, currentWorkspaceId, currentHotThreshold, storageKeys, switchWorkspace, createWorkspace, renameWorkspace, deleteWorkspace, setHotThreshold, exportWorkspace, importWorkspace } = workspace;
 
   const [records, setRecords] = useState(() => storageKeys ? loadRecordsFor(storageKeys) : withIds(appConfig.seed));
   const [archives, setArchives] = useState(() => storageKeys ? loadArchivesFor(storageKeys) : withIds(archiveConfig.seed));
@@ -1221,7 +1219,7 @@ function App() {
     if (appConfig.chart) {
       const temp = Number(nextRecord.temperature || 0);
       nextRecord.temps = [temp];
-      if (temp > 2) nextRecord.status = '异常';
+      if (temp > currentHotThreshold) nextRecord.status = '异常';
     }
 
     persist([nextRecord, ...records]);
@@ -1258,7 +1256,7 @@ function App() {
       ...record,
       temps: [...(record.temps || []), value],
       temperature: String(value),
-      status: value > 2 ? '异常' : record.status
+      status: value > currentHotThreshold ? '异常' : record.status
     } : record);
     persist(next);
     setSelected(next.find((record) => record.id === item.id));
@@ -1307,7 +1305,7 @@ function App() {
       return;
     }
 
-    const hasHot = valid.some((v) => v > 2);
+    const hasHot = valid.some((v) => v > currentHotThreshold);
     const next = records.map((record) => record.id === batchForm.batchId ? {
       ...record,
       temps: [...(record.temps || []), ...valid],
@@ -1361,7 +1359,7 @@ function App() {
         groups[key] = { from: item.from, to: item.to, count: 0, abnormalCount: 0, temps: [], etas: [] };
       }
       groups[key].count += 1;
-      if (item.status === '异常' || hasHotTemp(item)) {
+      if (item.status === '异常' || hasHotTemp(item, currentHotThreshold)) {
         groups[key].abnormalCount += 1;
       }
       groups[key].temps.push(latestTemp(item));
@@ -1379,7 +1377,7 @@ function App() {
       earliestEta: data.etas.length > 0 ? data.etas.sort()[0] : '-',
       abnormalCount: data.abnormalCount,
     })).sort((a, b) => b.count - a.count);
-  }, [records]);
+  }, [records, currentHotThreshold]);
 
   const filteredRecords = useMemo(() => {
     return records
@@ -1401,7 +1399,7 @@ function App() {
 
   const metrics = [
     { label: "批次数", value: records.length },
-    { label: "异常批次", value: records.filter((item) => item.status === '异常' || hasHotTemp(item)).length },
+    { label: "异常批次", value: records.filter((item) => item.status === '异常' || hasHotTemp(item, currentHotThreshold)).length },
     { label: "运输中", value: records.filter((item) => item.status === '运输中').length },
     { label: "未处理交接异常", value: exceptions.filter((ex) => ex.status === '待处理' || ex.status === '处理中').length, highlight: true },
   ];
@@ -1496,6 +1494,29 @@ function App() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                  <div className="workspace-threshold-section">
+                    <div className="workspace-threshold-label">
+                      <ThermometerSnowflake size={14} />
+                      <span>当前工作区温度阈值</span>
+                    </div>
+                    <div className="workspace-threshold-input">
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={currentWorkspace?.hotThreshold ?? 2}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          if (Number.isFinite(val) && currentWorkspaceId) {
+                            setHotThreshold(currentWorkspaceId, val);
+                          }
+                        }}
+                      />
+                      <span className="threshold-unit">℃</span>
+                    </div>
+                    <p className="workspace-threshold-hint">
+                      超过此温度将被标记为超温，影响批次卡片、路线看板、详情曲线和合规报告的判断。
+                    </p>
                   </div>
                   <div className="workspace-dropdown-footer">
                     <button type="button" onClick={() => { openCreateWorkspace(); setShowWorkspaceMenu(false); }}>
@@ -1731,7 +1752,7 @@ function App() {
             ) : (
               <div className="report-list">
                 {filteredReports.map((report) => {
-                  const stats = computeTemperatureStats(report.snapshot?.batch?.temps);
+                  const stats = computeTemperatureStats(report.snapshot?.batch?.temps, currentHotThreshold);
                   const exCount = report.snapshot?.exceptions?.length || 0;
                   return (
                     <div className="report-card" key={report.id}>
@@ -1791,6 +1812,7 @@ function App() {
             reports={reports}
             routeStats={routeStats}
             workspaceName={currentWorkspace?.name || '默认工作区'}
+            hotThreshold={currentHotThreshold}
             onDrillToBatches={handleDrillToBatches}
             onDrillToRoute={handleDrillToRoute}
             onDrillToExceptions={handleDrillToExceptions}
@@ -1958,7 +1980,7 @@ function App() {
                       <span className={'status ' + statusClass(item.status)}>{item.status}</span>
                     </div>
                   </div>
-                  <p className="record-detail">{`司机${item.driver}｜最近温度${latestTemp(item)}℃｜${hasHotTemp(item) ? '已超温' : '温度正常'}`}</p>
+                  <p className="record-detail">{`司机${item.driver}｜最近温度${latestTemp(item)}℃｜${hasHotTemp(item, currentHotThreshold) ? '已超温' : '温度正常'}`}</p>
                   {(item.conflict || hasOverlap(item, records)) && <div className="warning"><AlertTriangle size={15} />发现冲突</div>}
                   <div className="actions" onClick={(event) => event.stopPropagation()}>
                     <button type="button" className="gen-report-btn" onClick={() => generateReportForBatch(item)}><FileText size={14} />生成报告</button>
@@ -2018,7 +2040,7 @@ function App() {
             <div className="detail">
               <h3>{selected.goods}</h3>
               <p>{`${selected.plate} · ${selected.from} → ${selected.to}`}</p>
-              <p>{`司机${selected.driver}｜最近温度${latestTemp(selected)}℃｜${hasHotTemp(selected) ? '已超温' : '温度正常'}`}</p>
+              <p>{`司机${selected.driver}｜最近温度${latestTemp(selected)}℃｜${hasHotTemp(selected, currentHotThreshold) ? '已超温' : '温度正常'}`}</p>
               <div className="actions" style={{ marginTop: '8px' }}>
                 <button type="button" className="gen-report-btn" onClick={() => generateReportForBatch(selected)}>
                   <FileText size={14} />生成合规报告
@@ -2085,7 +2107,7 @@ function App() {
                   <AlertTriangle size={14} />登记交接异常
                 </button>
               )}
-              {selected.temps && <TemperatureCurveDetail temps={selected.temps} />}
+              {selected.temps && <TemperatureCurveDetail temps={selected.temps} hotThreshold={currentHotThreshold} />}
               <div className="timeline">
                 {(selected.timeline || []).map((step, index) => (
                   <span key={index}>{step.at} · {step.status} · {step.by}{step.detail ? '｜' + step.detail : ''}</span>
@@ -2427,6 +2449,7 @@ function App() {
                 snapshot={activeReportData}
                 reportMeta={activeReportMeta}
                 isSnapshot={isViewingSavedReport}
+                hotThreshold={currentHotThreshold}
               />
             </div>
           </div>

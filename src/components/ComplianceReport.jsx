@@ -22,17 +22,17 @@ import {
   getHotTemperaturePoints,
   formatDateTime,
   formatDate,
-  REPORT_HOT_THRESHOLD,
+  DEFAULT_HOT_THRESHOLD,
 } from '../utils/reportUtils';
 
-function downsample(data, maxPoints) {
+function downsample(data, maxPoints, hotThreshold) {
   if (data.length <= maxPoints) return data.map((v, i) => ({ idx: i, value: v }));
   const HOT_MAX_RATIO = 0.35;
   const maxHotPoints = Math.max(4, Math.floor(maxPoints * HOT_MAX_RATIO));
   const minIndexGap = Math.max(2, Math.floor(data.length / maxPoints * 0.8));
   const allHotPoints = [];
   for (let i = 0; i < data.length; i++) {
-    if (data[i] > REPORT_HOT_THRESHOLD) allHotPoints.push({ idx: i, value: data[i] });
+    if (data[i] > hotThreshold) allHotPoints.push({ idx: i, value: data[i] });
   }
   allHotPoints.sort((a, b) => b.value - a.value);
   const hotKept = [];
@@ -102,12 +102,12 @@ function getTrend(temps) {
   return { type: 'down', label: '呈下降趋势', diff };
 }
 
-function ReportTemperatureChart({ temps }) {
+function ReportTemperatureChart({ temps, hotThreshold }) {
   const numbers = (temps || []).map(Number).filter(Number.isFinite);
-  const stats = useMemo(() => computeTemperatureStats(temps), [temps]);
-  const sampled = useMemo(() => downsample(numbers, 60), [numbers]);
+  const stats = useMemo(() => computeTemperatureStats(temps, hotThreshold), [temps, hotThreshold]);
+  const sampled = useMemo(() => downsample(numbers, 60, hotThreshold), [numbers, hotThreshold]);
   const trend = useMemo(() => getTrend(numbers), [numbers]);
-  const hotPoints = useMemo(() => getHotTemperaturePoints(temps), [temps]);
+  const hotPoints = useMemo(() => getHotTemperaturePoints(temps, hotThreshold), [temps, hotThreshold]);
 
   const chartW = 720;
   const chartH = 240;
@@ -116,7 +116,7 @@ function ReportTemperatureChart({ temps }) {
   const plotH = chartH - padT - padB;
 
   const yMin = Math.min(-3, Math.floor(stats.min) - 1);
-  const yMax = Math.max(REPORT_HOT_THRESHOLD + 2, Math.ceil(stats.max) + 1);
+  const yMax = Math.max(hotThreshold + 2, Math.ceil(stats.max) + 1);
   const yRange = yMax - yMin;
 
   function yToPx(v) {
@@ -161,7 +161,7 @@ function ReportTemperatureChart({ temps }) {
       <div className="report-temp-stats">
         <div className="report-stat-item">
           <span className="report-stat-label"><ArrowUp size={12} /> 最高温度</span>
-          <strong className={'report-stat-value ' + (stats.max > REPORT_HOT_THRESHOLD ? 'hot' : '')}>
+          <strong className={'report-stat-value ' + (stats.max > hotThreshold ? 'hot' : '')}>
             {stats.max.toFixed(1)}℃
           </strong>
         </div>
@@ -171,7 +171,7 @@ function ReportTemperatureChart({ temps }) {
         </div>
         <div className="report-stat-item">
           <span className="report-stat-label">平均温度</span>
-          <strong className={'report-stat-value ' + (stats.avg > REPORT_HOT_THRESHOLD ? 'hot' : '')}>
+          <strong className={'report-stat-value ' + (stats.avg > hotThreshold ? 'hot' : '')}>
             {stats.avg.toFixed(1)}℃
           </strong>
         </div>
@@ -224,8 +224,8 @@ function ReportTemperatureChart({ temps }) {
                 x2={chartW - padR}
                 y2={yToPx(tick)}
                 stroke="#e5e7eb"
-                strokeDasharray={tick === REPORT_HOT_THRESHOLD ? '' : '3 3'}
-                strokeWidth={tick === REPORT_HOT_THRESHOLD ? 1.5 : 1}
+                strokeDasharray={tick === hotThreshold ? '' : '3 3'}
+                strokeWidth={tick === hotThreshold ? 1.5 : 1}
               />
               <text x={padL - 8} y={yToPx(tick) + 4} textAnchor="end" fontSize="11" fill="#667085">
                 {tick}℃
@@ -236,17 +236,17 @@ function ReportTemperatureChart({ temps }) {
           {numbers.length > 0 && (
             <line
               x1={padL}
-              y1={yToPx(REPORT_HOT_THRESHOLD)}
+              y1={yToPx(hotThreshold)}
               x2={chartW - padR}
-              y2={yToPx(REPORT_HOT_THRESHOLD)}
+              y2={yToPx(hotThreshold)}
               stroke="#dc2626"
               strokeWidth="1.5"
               strokeDasharray="6 4"
             />
           )}
           {numbers.length > 0 && (
-            <text x={chartW - padR - 4} y={yToPx(REPORT_HOT_THRESHOLD) - 6} textAnchor="end" fontSize="11" fill="#dc2626" fontWeight="700">
-              超温阈值 {REPORT_HOT_THRESHOLD}℃
+            <text x={chartW - padR - 4} y={yToPx(hotThreshold) - 6} textAnchor="end" fontSize="11" fill="#dc2626" fontWeight="700">
+              超温阈值 {hotThreshold}℃
             </text>
           )}
 
@@ -268,7 +268,7 @@ function ReportTemperatureChart({ temps }) {
             const circles = [];
             for (let i = 0; i < sampled.length; i++) {
               const p = sampled[i];
-              const isHot = p.value > REPORT_HOT_THRESHOLD;
+              const isHot = p.value > hotThreshold;
               const x = xToPx(i, sampled.length);
               const y = yToPx(p.value);
               let tooClose = false;
@@ -342,9 +342,9 @@ function ReportTemperatureChart({ temps }) {
   );
 }
 
-export default function ComplianceReport({ snapshot, reportMeta, isSnapshot = false }) {
+export default function ComplianceReport({ snapshot, reportMeta, isSnapshot = false, hotThreshold = DEFAULT_HOT_THRESHOLD }) {
   const { batch, exceptions = [], generatedAt } = snapshot || {};
-  const tempStats = useMemo(() => computeTemperatureStats(batch?.temps), [batch?.temps]);
+  const tempStats = useMemo(() => computeTemperatureStats(batch?.temps, hotThreshold), [batch?.temps, hotThreshold]);
 
   if (!batch) {
     return (
@@ -435,7 +435,7 @@ export default function ComplianceReport({ snapshot, reportMeta, isSnapshot = fa
         </div>
       </div>
 
-      <ReportTemperatureChart temps={batch.temps} />
+      <ReportTemperatureChart temps={batch.temps} hotThreshold={hotThreshold} />
 
       <div className="report-section">
         <div className="report-section-header">

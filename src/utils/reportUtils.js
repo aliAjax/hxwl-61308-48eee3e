@@ -1,4 +1,4 @@
-const HOT_THRESHOLD = 2;
+export const DEFAULT_HOT_THRESHOLD = 2;
 
 export function uid() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
@@ -8,14 +8,14 @@ export function deepClone(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
-export function getHotTemperaturePoints(temps) {
+export function getHotTemperaturePoints(temps, threshold = DEFAULT_HOT_THRESHOLD) {
   const numbers = (temps || []).map(Number).filter(Number.isFinite);
   return numbers
     .map((value, index) => ({ index, value }))
-    .filter((item) => item.value > HOT_THRESHOLD);
+    .filter((item) => item.value > threshold);
 }
 
-export function computeTemperatureStats(temps) {
+export function computeTemperatureStats(temps, threshold = DEFAULT_HOT_THRESHOLD) {
   const numbers = (temps || []).map(Number).filter(Number.isFinite);
   if (numbers.length === 0) {
     return {
@@ -35,7 +35,7 @@ export function computeTemperatureStats(temps) {
   for (const value of numbers) {
     if (value > max) max = value;
     if (value < min) min = value;
-    if (value > HOT_THRESHOLD) hotCount++;
+    if (value > threshold) hotCount++;
     sum += value;
   }
   const avg = sum / numbers.length;
@@ -114,4 +114,4 @@ export function triggerPrint() {
   window.print();
 }
 
-export const REPORT_HOT_THRESHOLD = HOT_THRESHOLD;
+export const REPORT_HOT_THRESHOLD = DEFAULT_HOT_THRESHOLD;

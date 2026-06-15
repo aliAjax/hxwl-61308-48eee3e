@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 const WORKSPACES_KEY = 'hxwl-61308-workspaces';
 const CURRENT_WS_KEY = 'hxwl-61308-workspace-current';
 const STORAGE_PREFIX = 'hxwl-61308-ws';
+const DEFAULT_HOT_THRESHOLD = 2;
 
 const OLD_STORAGE_KEYS = {
   records: 'hxwl-61308-cold-chain-seafood',
@@ -71,7 +72,18 @@ function migrateOldDataToWorkspace(workspaceId) {
 function initializeWorkspaces() {
   const existing = loadWorkspacesMeta();
   if (existing && existing.length > 0) {
-    return existing;
+    let needsSave = false;
+    const migrated = existing.map(ws => {
+      if (ws.hotThreshold === undefined) {
+        needsSave = true;
+        return { ...ws, hotThreshold: DEFAULT_HOT_THRESHOLD };
+      }
+      return ws;
+    });
+    if (needsSave) {
+      saveWorkspacesMeta(migrated);
+    }
+    return migrated;
   }
 
   const defaultWs = {
@@ -79,6 +91,7 @@ function initializeWorkspaces() {
     name: '默认工作区',
     createdAt: new Date().toISOString(),
     isDefault: true,
+    hotThreshold: DEFAULT_HOT_THRESHOLD,
   };
 
   if (hasOldData()) {
@@ -126,6 +139,7 @@ export function useWorkspace() {
       name: trimmedName,
       createdAt: new Date().toISOString(),
       isDefault: false,
+      hotThreshold: DEFAULT_HOT_THRESHOLD,
     };
     const keys = getStorageKeys(newWs.id);
     localStorage.setItem(keys.records, JSON.stringify([]));
@@ -172,12 +186,23 @@ export function useWorkspace() {
     return true;
   }, [workspaces, currentWorkspaceId]);
 
+  const setHotThreshold = useCallback((id, threshold) => {
+    const numThreshold = Number(threshold);
+    if (!Number.isFinite(numThreshold)) return false;
+    const target = workspaces.find(w => w.id === id);
+    if (!target) return false;
+    const next = workspaces.map(w => w.id === id ? { ...w, hotThreshold: numThreshold } : w);
+    setWorkspaces(next);
+    saveWorkspacesMeta(next);
+    return true;
+  }, [workspaces]);
+
   const exportWorkspace = useCallback((id) => {
     const ws = workspaces.find(w => w.id === id);
     if (!ws) return null;
     const keys = getStorageKeys(id);
     const data = {
-      workspace: { id: ws.id, name: ws.name, exportedAt: new Date().toISOString() },
+      workspace: { id: ws.id, name: ws.name, hotThreshold: ws.hotThreshold, exportedAt: new Date().toISOString() },
       records: JSON.parse(localStorage.getItem(keys.records) || '[]'),
       archives: JSON.parse(localStorage.getItem(keys.archives) || '[]'),
       exceptions: JSON.parse(localStorage.getItem(keys.exceptions) || '[]'),
@@ -202,11 +227,13 @@ export function useWorkspace() {
         counter++;
         name = `${baseName} (${counter})`;
       }
+      const sourceThreshold = data.workspace?.hotThreshold;
       const newWs = {
         id: uid(),
         name,
         createdAt: new Date().toISOString(),
         isDefault: false,
+        hotThreshold: Number.isFinite(Number(sourceThreshold)) ? Number(sourceThreshold) : DEFAULT_HOT_THRESHOLD,
       };
       const keys = getStorageKeys(newWs.id);
       localStorage.setItem(keys.records, JSON.stringify(sourceRecords));
@@ -228,16 +255,22 @@ export function useWorkspace() {
     }
   }, [workspaces, currentWorkspaceId]);
 
+  const currentHotThreshold = currentWorkspace?.hotThreshold ?? DEFAULT_HOT_THRESHOLD;
+
   return {
     workspaces,
     currentWorkspace,
     currentWorkspaceId,
+    currentHotThreshold,
     storageKeys,
     switchWorkspace,
     createWorkspace,
     renameWorkspace,
     deleteWorkspace,
+    setHotThreshold,
     exportWorkspace,
     importWorkspace,
   };
 }
+
+export { DEFAULT_HOT_THRESHOLD };

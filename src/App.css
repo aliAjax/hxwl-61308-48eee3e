@@ -1833,6 +1833,62 @@ textarea { min-height: 76px; resize: vertical; }
   background: #fef2f2;
 }
 
+.workspace-threshold-section {
+  padding: 12px;
+  border-top: 1px solid #e5e7eb;
+  background: #f8fafc;
+}
+
+.workspace-threshold-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+}
+
+.workspace-threshold-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.workspace-threshold-input input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+  background: #fff;
+  text-align: right;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.workspace-threshold-input input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.1);
+}
+
+.threshold-unit {
+  font-size: 14px;
+  font-weight: 600;
+  color: #6b7280;
+  min-width: 18px;
+}
+
+.workspace-threshold-hint {
+  font-size: 11px;
+  color: #9ca3af;
+  line-height: 1.4;
+  margin: 0;
+}
+
 .workspace-dropdown-footer {
   display: flex;
   gap: 8px;
