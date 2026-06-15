@@ -201,7 +201,11 @@ function uid() {
 }
 
 function withIds(items) {
-  return items.map((item) => ({ id: uid(), timeline: item.timeline || [{ status: item.status, at: today, by: '系统' }], ...item }));
+  return items.map((item) => ({
+    id: item.id || uid(),
+    timeline: item.timeline || [{ status: item.status, at: today, by: '系统' }],
+    ...item,
+  }));
 }
 
 function loadRecords() {
@@ -811,14 +815,12 @@ function App() {
 
   function persistArchives(next) {
     setArchives(next);
-    const clean = next.map(({ id, timeline, ...rest }) => rest);
-    if (storageKeys) localStorage.setItem(storageKeys.archives, JSON.stringify(clean));
+    if (storageKeys) localStorage.setItem(storageKeys.archives, JSON.stringify(next));
   }
 
   function persistExceptions(next) {
     setExceptions(next);
-    const clean = next.map(({ id, timeline, ...rest }) => rest);
-    if (storageKeys) localStorage.setItem(storageKeys.exceptions, JSON.stringify(clean));
+    if (storageKeys) localStorage.setItem(storageKeys.exceptions, JSON.stringify(next));
   }
 
   function persistReports(next) {
