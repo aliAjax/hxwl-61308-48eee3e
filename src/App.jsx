@@ -714,6 +714,7 @@ function App() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importValidation, setImportValidation] = useState([]);
   const [importFileName, setImportFileName] = useState('');
+  const [importMode, setImportMode] = useState('append');
   const fileInputRef = useRef(null);
   const [showExceptionPanel, setShowExceptionPanel] = useState(false);
   const [showExceptionModal, setShowExceptionModal] = useState(false);
@@ -1072,6 +1073,7 @@ function App() {
     setShowImportModal(false);
     setImportValidation([]);
     setImportFileName('');
+    setImportMode('append');
   }
 
   function confirmImport() {
@@ -1093,7 +1095,7 @@ function App() {
       return;
     }
 
-    const merged = [...validItems, ...records];
+    const merged = importMode === 'overwrite' ? validItems : [...validItems, ...records];
     persist(merged);
     resetImportState();
   }
@@ -2232,9 +2234,73 @@ function App() {
                   <AlertTriangle size={14} /> 异常 <strong>{importValidation.filter(v => !v.valid).length}</strong> 条
                 </span>
               </div>
-              <p className="import-hint">
-                异常记录将被跳过，仅有效数据会被导入。导入数据将追加到现有记录之后，不会覆盖您当前的数据。
-              </p>
+              <div className="import-batch-info">
+                <Truck size={14} />
+                <span>将导入 <strong>{importValidation.filter(v => v.valid).length}</strong> 个运输批次{importMode === 'overwrite' ? '（覆盖模式）' : '（追加模式）'}</span>
+              </div>
+            </div>
+
+            {(() => {
+              const invalidItems = importValidation.filter(v => !v.valid);
+              if (invalidItems.length > 0) {
+                const errorMap = {};
+                invalidItems.forEach(item => {
+                  item.errors.forEach(err => {
+                    errorMap[err] = (errorMap[err] || 0) + 1;
+                  });
+                });
+                return (
+                  <div className="import-error-summary">
+                    <div className="import-error-summary-title">
+                      <AlertTriangle size={14} /> 错误原因汇总
+                    </div>
+                    <div className="import-error-summary-list">
+                      {Object.entries(errorMap).map(([err, count]) => (
+                        <span key={err} className="import-error-summary-tag">
+                          {err} ×{count}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
+            <div className="import-mode-section">
+              <div className="import-mode-title">导入方式</div>
+              <div className="import-mode-options">
+                <label className={'import-mode-option' + (importMode === 'append' ? ' active' : '')}>
+                  <input
+                    type="radio"
+                    name="importMode"
+                    value="append"
+                    checked={importMode === 'append'}
+                    onChange={() => setImportMode('append')}
+                  />
+                  <span className="import-mode-radio" />
+                  <span className="import-mode-label">
+                    <ListPlus size={15} />
+                    追加到当前列表
+                  </span>
+                  <span className="import-mode-desc">有效数据将添加到现有记录之后，当前数据不受影响</span>
+                </label>
+                <label className={'import-mode-option' + (importMode === 'overwrite' ? ' active' : '')}>
+                  <input
+                    type="radio"
+                    name="importMode"
+                    value="overwrite"
+                    checked={importMode === 'overwrite'}
+                    onChange={() => setImportMode('overwrite')}
+                  />
+                  <span className="import-mode-radio" />
+                  <span className="import-mode-label">
+                    <Layers size={15} />
+                    覆盖当前列表
+                  </span>
+                  <span className="import-mode-desc">有效数据将替换全部现有记录，当前数据会被清除</span>
+                </label>
+              </div>
             </div>
 
             <div className="import-preview-list">
@@ -2299,7 +2365,7 @@ function App() {
                 disabled={importValidation.filter(v => v.valid).length === 0}
               >
                 <CheckCircle2 size={18} />
-                确认导入 {importValidation.filter(v => v.valid).length} 条
+                {importMode === 'overwrite' ? '覆盖导入' : '追加导入'} {importValidation.filter(v => v.valid).length} 条
               </button>
             </div>
           </div>
