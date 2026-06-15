@@ -681,6 +681,10 @@ function App() {
   const [activeReportMeta, setActiveReportMeta] = useState(null);
   const [isViewingSavedReport, setIsViewingSavedReport] = useState(false);
   const [reportQuery, setReportQuery] = useState('');
+  const [reportTempStatus, setReportTempStatus] = useState('全部');
+  const [reportHasException, setReportHasException] = useState('全部');
+  const [reportDateStart, setReportDateStart] = useState('');
+  const [reportDateEnd, setReportDateEnd] = useState('');
   const [showDashboard, setShowDashboard] = useState(false);
 
   useEffect(() => {
@@ -1419,6 +1423,32 @@ function App() {
     return archives.filter((item) => !archiveQuery || `${item.plate}${item.driver}${item.phone}${item.from}${item.to}`.includes(archiveQuery));
   }, [archives, archiveQuery]);
 
+  const filteredReports = useMemo(() => {
+    return reports.filter((r) => {
+      if (reportQuery && !`${r.batchLabel}${r.id}`.includes(reportQuery)) return false;
+      const stats = computeTemperatureStats(r.snapshot?.batch?.temps, currentHotThreshold);
+      if (reportTempStatus === '温度合规' && stats.hasHot) return false;
+      if (reportTempStatus === '存在超温' && !stats.hasHot) return false;
+      const exCount = r.snapshot?.exceptions?.length || 0;
+      if (reportHasException === '有关联异常' && exCount === 0) return false;
+      if (reportHasException === '无关联异常' && exCount > 0) return false;
+      if (reportDateStart) {
+        const reportDate = new Date(r.createdAt);
+        const startDate = new Date(reportDateStart);
+        if (reportDate < startDate) return false;
+      }
+      if (reportDateEnd) {
+        const reportDate = new Date(r.createdAt);
+        const endDate = new Date(reportDateEnd);
+        endDate.setHours(23, 59, 59, 999);
+        if (reportDate > endDate) return false;
+      }
+      return true;
+    });
+  }, [reports, reportQuery, reportTempStatus, reportHasException, reportDateStart, reportDateEnd, currentHotThreshold]);
+
+  const hasReportFilters = reportQuery || reportTempStatus !== '全部' || reportHasException !== '全部' || reportDateStart || reportDateEnd;
+
   const groupedByDate = useMemo(() => {
     return filteredRecords.reduce((acc, item) => {
       const key = item[appConfig.dateKey] || item.date || item.enrollDate || '未排期';
@@ -1733,76 +1763,117 @@ function App() {
           <div className="panel-title">
             <FileText size={18} />
             <h2>冷链合规追溯报告中心</h2>
-            <span className="report-count">共 {reports.length} 份历史报告</span>
+            <span className="report-count">共 {reports.length} 份历史报告{hasReportFilters ? `（筛选后 ${filteredReports.length} 份）` : ''}</span>
+            {hasReportFilters && (
+              <button
+                type="button"
+                className="clear-route-btn"
+                onClick={() => {
+                  setReportQuery('');
+                  setReportTempStatus('全部');
+                  setReportHasException('全部');
+                  setReportDateStart('');
+                  setReportDateEnd('');
+                }}
+              >
+                <X size={14} />清除筛选
+              </button>
+            )}
           </div>
-          <div className="toolbar">
+          <div className="toolbar report-toolbar">
             <div className="search">
               <Search size={16} />
               <input value={reportQuery} onChange={(e) => setReportQuery(e.target.value)} placeholder="搜索批次/报告编号..." />
             </div>
+            <select value={reportTempStatus} onChange={(e) => setReportTempStatus(e.target.value)}>
+              <option>全部</option>
+              <option>温度合规</option>
+              <option>存在超温</option>
+            </select>
+            <select value={reportHasException} onChange={(e) => setReportHasException(e.target.value)}>
+              <option>全部</option>
+              <option>有关联异常</option>
+              <option>无关联异常</option>
+            </select>
+            <div className="report-date-filter">
+              <CalendarDays size={14} />
+              <input
+                type="date"
+                value={reportDateStart}
+                onChange={(e) => setReportDateStart(e.target.value)}
+                placeholder="开始日期"
+              />
+              <span className="date-separator">至</span>
+              <input
+                type="date"
+                value={reportDateEnd}
+                onChange={(e) => setReportDateEnd(e.target.value)}
+                placeholder="结束日期"
+              />
+            </div>
           </div>
-          {(() => {
-            const filteredReports = reports.filter((r) => {
-              if (!reportQuery) return true;
-              return `${r.batchLabel}${r.id}`.includes(reportQuery);
-            });
-            return filteredReports.length === 0 ? (
-              <div className="report-empty-list">
-                <FileText size={40} />
-                <p>{reports.length === 0 ? '暂无历史报告。点击任意运输批次的"生成报告"按钮创建合规追溯报告。' : '没有匹配的报告'}</p>
-              </div>
-            ) : (
-              <div className="report-list">
-                {filteredReports.map((report) => {
-                  const stats = computeTemperatureStats(report.snapshot?.batch?.temps, currentHotThreshold);
-                  const exCount = report.snapshot?.exceptions?.length || 0;
-                  return (
-                    <div className="report-card" key={report.id}>
-                      <div className="report-card-head">
-                        <div>
-                          <div className="report-card-title">冷链合规追溯报告</div>
-                        </div>
-                        <div className="report-card-actions">
-                          <button type="button" title="查看报告" onClick={() => openSavedReport(report)}>
-                            <Eye size={12} />查看
-                          </button>
-                          <button type="button" title="下载JSON" onClick={() => downloadReportAsJson(report)}>
-                            <Download size={12} />下载
-                          </button>
-                          <button type="button" className="ghost-danger" title="删除" onClick={() => deleteReport(report.id)}>
-                            <Trash2 size={12} />
-                          </button>
-                        </div>
+          {filteredReports.length === 0 ? (
+            <div className="report-empty-list">
+              <FileText size={40} />
+              {reports.length === 0 ? (
+                <p>暂无历史报告。点击任意运输批次的"生成报告"按钮创建合规追溯报告。</p>
+              ) : hasReportFilters ? (
+                <p>当前筛选条件下没有匹配的报告，请尝试调整筛选条件。</p>
+              ) : (
+                <p>没有匹配的报告</p>
+              )}
+            </div>
+          ) : (
+            <div className="report-list">
+              {filteredReports.map((report) => {
+                const stats = computeTemperatureStats(report.snapshot?.batch?.temps, currentHotThreshold);
+                const exCount = report.snapshot?.exceptions?.length || 0;
+                return (
+                  <div className="report-card" key={report.id}>
+                    <div className="report-card-head">
+                      <div>
+                        <div className="report-card-title">冷链合规追溯报告</div>
                       </div>
-                      <div className="report-card-batch">{report.batchLabel || '关联批次'}</div>
-                      <div className="report-card-meta">
-                        <span><Clock size={12} /> 生成：{formatDateTime(report.createdAt)}</span>
-                        <span>编号：{report.id}</span>
-                      </div>
-                      <div className="report-card-stats">
-                        <span className={'report-card-stat ' + (stats.hasHot ? 'danger' : 'success')}>
-                          <ThermometerSnowflake size={12} /> {stats.hasHot ? '存在超温' : '温度合规'}
-                        </span>
-                        <span className="report-card-stat">
-                          读数 {stats.count} 条
-                        </span>
-                        {stats.hasHot && (
-                          <span className="report-card-stat danger">
-                            超温 {stats.hotCount} 处
-                          </span>
-                        )}
-                        {exCount > 0 && (
-                          <span className="report-card-stat danger">
-                            <AlertTriangle size={12} /> 异常 {exCount} 条
-                          </span>
-                        )}
+                      <div className="report-card-actions">
+                        <button type="button" title="查看报告" onClick={() => openSavedReport(report)}>
+                          <Eye size={12} />查看
+                        </button>
+                        <button type="button" title="下载JSON" onClick={() => downloadReportAsJson(report)}>
+                          <Download size={12} />下载
+                        </button>
+                        <button type="button" className="ghost-danger" title="删除" onClick={() => deleteReport(report.id)}>
+                          <Trash2 size={12} />
+                        </button>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
+                    <div className="report-card-batch">{report.batchLabel || '关联批次'}</div>
+                    <div className="report-card-meta">
+                      <span><Clock size={12} /> 生成：{formatDateTime(report.createdAt)}</span>
+                      <span>编号：{report.id}</span>
+                    </div>
+                    <div className="report-card-stats">
+                      <span className={'report-card-stat ' + (stats.hasHot ? 'danger' : 'success')}>
+                        <ThermometerSnowflake size={12} /> {stats.hasHot ? '存在超温' : '温度合规'}
+                      </span>
+                      <span className="report-card-stat">
+                        读数 {stats.count} 条
+                      </span>
+                      {stats.hasHot && (
+                        <span className="report-card-stat danger">
+                          超温 {stats.hotCount} 处
+                        </span>
+                      )}
+                      {exCount > 0 && (
+                        <span className="report-card-stat danger">
+                          <AlertTriangle size={12} /> 异常 {exCount} 条
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
 

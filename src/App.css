@@ -1777,6 +1777,18 @@ textarea { min-height: 76px; resize: vertical; }
     justify-content: center;
     padding: 10px 12px;
   }
+  .report-toolbar {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .report-toolbar select,
+  .report-date-filter {
+    width: 100%;
+    justify-content: center;
+  }
+  .report-date-filter input[type="date"] {
+    flex: 1;
+  }
 }
 
 @media (max-width: 620px) {
@@ -2139,13 +2151,61 @@ textarea { min-height: 76px; resize: vertical; }
 }
 
 .report-count {
-  margin-left: auto;
+  margin-left: 12px;
   font-size: 13px;
   color: #667085;
   font-weight: 600;
   background: #f2f4f7;
   padding: 4px 10px;
   border-radius: 999px;
+}
+
+.report-toolbar {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.report-toolbar select {
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: #fff;
+  color: #344054;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s;
+}
+
+.report-toolbar select:hover {
+  border-color: var(--accent);
+}
+
+.report-date-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d0d5dd;
+  border-radius: 6px;
+  padding: 4px 10px;
+  background: #fff;
+  color: #667085;
+}
+
+.report-date-filter input[type="date"] {
+  border: 0;
+  padding: 2px 4px;
+  font-size: 13px;
+  color: #344085;
+  background: transparent;
+  outline: 0;
+  font-family: inherit;
+}
+
+.report-date-filter .date-separator {
+  font-size: 13px;
+  color: #98a2b3;
+  font-weight: 600;
 }
 
 .report-list {
