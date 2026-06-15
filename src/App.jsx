@@ -10,6 +10,11 @@ import {
   formatDateTime,
   downloadReportAsJson,
   triggerPrint,
+  normalizeTemps,
+  tempsToNumbers,
+  tempLabel,
+  isObjectReading,
+  createReading,
 } from './utils/reportUtils';
 import './App.css';
 
@@ -107,9 +112,9 @@ const appConfig = {
       "eta": "2026-06-13T19:00",
       "temperature": "-1.5",
       "temps": [
-        -1.8,
-        -1.5,
-        -0.9
+        { "value": -1.8, "time": "2026-06-13T08:00" },
+        { "value": -1.5, "time": "2026-06-13T12:00" },
+        { "value": -0.9, "time": "2026-06-13T16:00" }
       ],
       "status": "运输中"
     },
@@ -122,9 +127,9 @@ const appConfig = {
       "eta": "2026-06-13T17:30",
       "temperature": "4.6",
       "temps": [
-        -2,
-        1.2,
-        4.6
+        { "value": -2, "time": "2026-06-13T07:00" },
+        { "value": 1.2, "time": "2026-06-13T11:00" },
+        { "value": 4.6, "time": "2026-06-13T15:00" }
       ],
       "status": "异常"
     },
@@ -137,9 +142,9 @@ const appConfig = {
       "eta": "2026-06-12T22:00",
       "temperature": "-2.1",
       "temps": [
-        -2.3,
-        -2,
-        -2.1
+        { "value": -2.3, "time": "2026-06-12T14:00" },
+        { "value": -2, "time": "2026-06-12T18:00" },
+        { "value": -2.1, "time": "2026-06-12T22:00" }
       ],
       "status": "已到达"
     }
@@ -267,13 +272,17 @@ function inNextDays(dateText, days) {
 }
 
 function latestTemp(item) {
-  const temps = item.temps || [Number(item.temperature)];
-  return temps[temps.length - 1];
+  const numbers = tempsToNumbers(item.temps);
+  if (numbers.length > 0) return numbers[numbers.length - 1];
+  const fallback = Number(item.temperature);
+  return Number.isFinite(fallback) ? fallback : 0;
 }
 
 function hasHotTemp(item, threshold = 2) {
-  const temps = item.temps || [Number(item.temperature)];
-  return temps.some((value) => Number(value) > threshold);
+  const numbers = tempsToNumbers(item.temps);
+  if (numbers.length > 0) return numbers.some((value) => value > threshold);
+  const fallback = Number(item.temperature);
+  return Number.isFinite(fallback) && fallback > threshold;
 }
 
 function recordDateKey(item) {
@@ -362,8 +371,9 @@ function downsample(data, maxPoints, hotThreshold = 2) {
 }
 
 function getTrend(temps) {
-  if (temps.length < 2) return { type: 'stable', label: '数据不足', diff: 0 };
-  const recent = temps.slice(-Math.min(5, temps.length));
+  const numbers = tempsToNumbers(temps);
+  if (numbers.length < 2) return { type: 'stable', label: '数据不足', diff: 0 };
+  const recent = numbers.slice(-Math.min(5, numbers.length));
   const first = recent[0];
   const last = recent[recent.length - 1];
   const diff = last - first;
@@ -373,7 +383,8 @@ function getTrend(temps) {
 }
 
 function TemperatureCurveDetail({ temps, hotThreshold = 2 }) {
-  const numbers = (temps || []).map(Number).filter(Number.isFinite);
+  const normalized = useMemo(() => normalizeTemps(temps), [temps]);
+  const numbers = useMemo(() => normalized.map(r => r.value).filter(Number.isFinite), [normalized]);
   const stats = useMemo(() => {
     if (numbers.length === 0) {
       return { max: 0, min: 0, avg: 0, hotCount: 0, trend: { type: 'stable', label: '暂无数据', diff: 0 } };
@@ -562,6 +573,8 @@ function TemperatureCurveDetail({ temps, hotThreshold = 2 }) {
                 if (dist < MIN_DISTANCE + 2) r = 3;
               }
               lastRendered.push({ x, y, isHot });
+              const origReading = normalized[p.idx];
+              const label = origReading ? tempLabel(origReading, p.idx) : `#${p.idx + 1}`;
               circles.push(
                 <g key={`${p.idx}-${i}`}>
                   <circle
@@ -572,7 +585,7 @@ function TemperatureCurveDetail({ temps, hotThreshold = 2 }) {
                     stroke="#fff"
                     strokeWidth="1.5"
                   />
-                  <title>第{p.idx + 1}次读数：{p.value.toFixed(1)}℃{isHot ? '（超温）' : ''}</title>
+                  <title>{label}：{p.value.toFixed(1)}℃{isHot ? '（超温）' : ''}</title>
                 </g>
               );
             }
@@ -590,21 +603,22 @@ function TemperatureCurveDetail({ temps, hotThreshold = 2 }) {
       <div className="temp-readings">
         <div className="temp-readings-title">
           <strong>温度读数序列</strong>
-          <span className="temp-readings-count">共 {numbers.length} 条</span>
+          <span className="temp-readings-count">共 {normalized.length} 条</span>
         </div>
         <div className="temp-readings-list">
-          {numbers.length === 0 ? (
+          {normalized.length === 0 ? (
             <p className="empty">暂无温度读数</p>
           ) : (
-            numbers.map((v, i) => (
+            normalized.map((r, i) => (
               <span
                 key={i}
-                className={'temp-reading-chip ' + (v > hotThreshold ? 'hot' : '')}
-                title={`第${i + 1}次读数`}
+                className={'temp-reading-chip ' + (r.value > hotThreshold ? 'hot' : '')}
+                title={r.time ? `采集时间：${formatDateTime(r.time)}` : `第${i + 1}次读数`}
               >
-                <em>#{i + 1}</em>
-                <b>{v.toFixed(1)}℃</b>
-                {v > hotThreshold && <AlertTriangle size={10} />}
+                <em>{tempLabel(r, i)}</em>
+                <b>{r.value.toFixed(1)}℃</b>
+                {r.time && <span className="reading-time">{formatDateTime(r.time)}</span>}
+                {r.value > hotThreshold && <AlertTriangle size={10} />}
               </span>
             ))
           )}
@@ -1010,9 +1024,16 @@ function App() {
       if (!Array.isArray(temps)) {
         errors.push('温度列表格式异常');
       } else {
-        const hasInvalidTemp = temps.some(t => !Number.isFinite(Number(t)));
-        if (hasInvalidTemp) {
-          errors.push('温度列表含有非数值');
+        for (let i = 0; i < temps.length; i++) {
+          const t = temps[i];
+          if (isObjectReading(t)) {
+            if (!Number.isFinite(Number(t.value))) {
+              errors.push(`温度列表第${i + 1}项value不是有效数值`);
+            }
+          } else if (!Number.isFinite(Number(t))) {
+            errors.push('温度列表含有非数值');
+            break;
+          }
         }
       }
     }
@@ -1083,16 +1104,30 @@ function App() {
   function confirmImport() {
     const validItems = importValidation
       .filter(v => v.valid)
-      .map(v => ({
-        ...v.data,
-        id: uid(),
-        status: v.data.status || appConfig.primaryStatus,
-        createdAt: new Date().toISOString(),
-        timeline: [{ status: v.data.status || appConfig.primaryStatus, at: today, by: '导入' }],
-        temps: Array.isArray(v.data.temps)
-          ? v.data.temps.map(t => Number(t)).filter(Number.isFinite)
-          : (v.data.temperature !== undefined && v.data.temperature !== null ? [Number(v.data.temperature)].filter(Number.isFinite) : []),
-      }));
+      .map(v => {
+        const data = v.data;
+        let temps;
+        if (Array.isArray(data.temps)) {
+          temps = data.temps.map(t => {
+            if (isObjectReading(t)) return createReading(Number(t.value), t.time || null);
+            const num = Number(t);
+            return Number.isFinite(num) ? createReading(num, null) : null;
+          }).filter(Boolean);
+        } else if (data.temperature !== undefined && data.temperature !== null) {
+          const num = Number(data.temperature);
+          temps = Number.isFinite(num) ? [createReading(num, null)] : [];
+        } else {
+          temps = [];
+        }
+        return {
+          ...data,
+          id: uid(),
+          status: data.status || appConfig.primaryStatus,
+          createdAt: new Date().toISOString(),
+          timeline: [{ status: data.status || appConfig.primaryStatus, at: today, by: '导入' }],
+          temps,
+        };
+      });
 
     if (validItems.length === 0) {
       alert('没有可导入的有效数据');
@@ -1224,7 +1259,7 @@ function App() {
     }
     if (appConfig.chart) {
       const temp = Number(nextRecord.temperature || 0);
-      nextRecord.temps = [temp];
+      nextRecord.temps = [createReading(temp, new Date().toISOString())];
       if (temp > currentHotThreshold) nextRecord.status = '异常';
     }
 
@@ -1258,9 +1293,11 @@ function App() {
   function addTemperature(item) {
     const value = Number(prompt('录入新的温度读数'));
     if (!Number.isFinite(value)) return;
+    const timeInput = prompt('采集时间（留空则使用当前时间，格式：YYYY-MM-DDTHH:MM）', new Date().toISOString().slice(0, 16));
+    const reading = createReading(value, timeInput || new Date().toISOString());
     const next = records.map((record) => record.id === item.id ? {
       ...record,
-      temps: [...(record.temps || []), value],
+      temps: [...(record.temps || []), reading],
       temperature: String(value),
       status: value > currentHotThreshold ? '异常' : record.status
     } : record);
@@ -1276,11 +1313,22 @@ function App() {
     const valid = [];
     const invalid = [];
     parts.forEach((part, index) => {
-      const num = Number(part);
-      if (Number.isFinite(num)) {
-        valid.push(num);
+      const match = part.match(/^(-?[\d.]+)(?:\s*[@Tt]\s*(.+))?$/);
+      if (match) {
+        const num = Number(match[1]);
+        if (Number.isFinite(num)) {
+          const reading = createReading(num, match[2] ? match[2].trim() : null);
+          valid.push(reading);
+        } else {
+          invalid.push(`第${index + 1}项"${part}"不是有效的数字`);
+        }
       } else {
-        invalid.push(`第${index + 1}项"${part}"不是有效的数字`);
+        const num = Number(part);
+        if (Number.isFinite(num)) {
+          valid.push(createReading(num, null));
+        } else {
+          invalid.push(`第${index + 1}项"${part}"不是有效的数字`);
+        }
       }
     });
     return { valid, invalid };
@@ -1311,11 +1359,12 @@ function App() {
       return;
     }
 
-    const hasHot = valid.some((v) => v > currentHotThreshold);
+    const numbers = valid.map((r) => isObjectReading(r) ? r.value : Number(r));
+    const hasHot = numbers.some((v) => v > currentHotThreshold);
     const next = records.map((record) => record.id === batchForm.batchId ? {
       ...record,
       temps: [...(record.temps || []), ...valid],
-      temperature: String(valid[valid.length - 1]),
+      temperature: String(numbers[numbers.length - 1]),
       status: hasHot ? '异常' : record.status
     } : record);
     persist(next);
@@ -1348,7 +1397,7 @@ function App() {
         detail: `卸货温度${arrivalForm.unloadTemp ? arrivalForm.unloadTemp + '℃' : '未填写'}${arrivalForm.remark ? '｜' + arrivalForm.remark : ''}`
       }],
       ...(arrivalForm.unloadTemp ? {
-        temps: [...(record.temps || []), unloadValue],
+        temps: [...(record.temps || []), createReading(unloadValue, arrivalForm.arrivedAt || new Date().toISOString())],
         temperature: String(unloadValue),
       } : {}),
     } : record);
@@ -2214,11 +2263,11 @@ function App() {
                 </select>
               </label>
               <label className="wide">
-                <span>温度读数（用换行或逗号分隔多个数值）</span>
+                <span>温度读数（用换行或逗号分隔，可附采集时间如 -1.5@2026-06-15T10:00）</span>
                 <textarea
                   value={batchForm.tempText}
                   onChange={(e) => setBatchForm({ ...batchForm, tempText: e.target.value })}
-                  placeholder="例如：&#10;-1.5&#10;-1.2, -0.8&#10;0.5"
+                  placeholder="例如：&#10;-1.5&#10;-1.2@2026-06-15T10:00&#10;-0.8, 0.5&#10;0.5@2026-06-15T14:30"
                   rows={8}
                 />
               </label>

@@ -16,16 +16,20 @@ import {
   CalendarDays,
   BarChart3,
 } from 'lucide-react';
-import { computeTemperatureStats, formatDateTime, DEFAULT_HOT_THRESHOLD } from '../utils/reportUtils';
+import { computeTemperatureStats, formatDateTime, DEFAULT_HOT_THRESHOLD, tempsToNumbers } from '../utils/reportUtils';
 
 function hasHotTemp(item, threshold) {
-  const temps = item.temps || [Number(item.temperature)];
-  return temps.some((value) => Number(value) > threshold);
+  const numbers = tempsToNumbers(item.temps);
+  if (numbers.length > 0) return numbers.some((value) => value > threshold);
+  const fallback = Number(item.temperature);
+  return Number.isFinite(fallback) && fallback > threshold;
 }
 
 function latestTemp(item) {
-  const temps = item.temps || [Number(item.temperature)];
-  return temps[temps.length - 1];
+  const numbers = tempsToNumbers(item.temps);
+  if (numbers.length > 0) return numbers[numbers.length - 1];
+  const fallback = Number(item.temperature);
+  return Number.isFinite(fallback) ? fallback : 0;
 }
 
 function dateKeyOf(item) {
@@ -34,8 +38,9 @@ function dateKeyOf(item) {
 }
 
 function getTrend(temps) {
-  if (temps.length < 2) return { type: 'stable', label: '数据不足', diff: 0 };
-  const recent = temps.slice(-Math.min(5, temps.length));
+  const numbers = tempsToNumbers(temps);
+  if (numbers.length < 2) return { type: 'stable', label: '数据不足', diff: 0 };
+  const recent = numbers.slice(-Math.min(5, numbers.length));
   const first = recent[0];
   const last = recent[recent.length - 1];
   const diff = last - first;
@@ -111,7 +116,7 @@ function downsample(data, maxPoints, hotThreshold) {
 }
 
 function MiniTempChart({ temps, hotThreshold, width = 200, height = 60 }) {
-  const numbers = (temps || []).map(Number).filter(Number.isFinite);
+  const numbers = useMemo(() => tempsToNumbers(temps), [temps]);
   const sampled = useMemo(() => downsample(numbers, 30, hotThreshold), [numbers, hotThreshold]);
 
   if (numbers.length === 0) {
@@ -235,7 +240,7 @@ export default function ColdChainDashboard({
     const abnormalBatches = todayRecords.filter(r => r.status === '异常' || hasHotTemp(r, hotThreshold)).length;
     const arrivedBatches = todayRecords.filter(r => r.status === '已到达').length;
 
-    const allTemps = todayRecords.flatMap(r => r.temps || [Number(r.temperature)]).map(Number).filter(Number.isFinite);
+    const allTemps = todayRecords.flatMap(r => tempsToNumbers(r.temps)).filter(Number.isFinite);
     const overallTempStats = computeTemperatureStats(allTemps, hotThreshold);
 
     const activeExceptions = exceptions.filter(e => e.status === '待处理' || e.status === '处理中').length;

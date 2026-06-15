@@ -928,6 +928,12 @@ textarea { min-height: 76px; resize: vertical; }
 .temp-reading-chip.hot b { color: #dc2626; }
 .temp-reading-chip.hot svg { color: #dc2626; }
 
+.temp-reading-chip .reading-time {
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 400;
+}
+
 @media (max-width: 620px) {
   .temp-stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

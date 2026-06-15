@@ -23,6 +23,9 @@ import {
   formatDateTime,
   formatDate,
   DEFAULT_HOT_THRESHOLD,
+  tempsToNumbers,
+  normalizeTemps,
+  tempLabel,
 } from '../utils/reportUtils';
 
 function downsample(data, maxPoints, hotThreshold) {
@@ -92,8 +95,9 @@ function downsample(data, maxPoints, hotThreshold) {
 }
 
 function getTrend(temps) {
-  if (temps.length < 2) return { type: 'stable', label: '数据不足', diff: 0 };
-  const recent = temps.slice(-Math.min(5, temps.length));
+  const numbers = tempsToNumbers(temps);
+  if (numbers.length < 2) return { type: 'stable', label: '数据不足', diff: 0 };
+  const recent = numbers.slice(-Math.min(5, numbers.length));
   const first = recent[0];
   const last = recent[recent.length - 1];
   const diff = last - first;
@@ -103,7 +107,8 @@ function getTrend(temps) {
 }
 
 function ReportTemperatureChart({ temps, hotThreshold }) {
-  const numbers = (temps || []).map(Number).filter(Number.isFinite);
+  const normalized = useMemo(() => normalizeTemps(temps), [temps]);
+  const numbers = useMemo(() => normalized.map(r => r.value).filter(Number.isFinite), [normalized]);
   const stats = useMemo(() => computeTemperatureStats(temps, hotThreshold), [temps, hotThreshold]);
   const sampled = useMemo(() => downsample(numbers, 60, hotThreshold), [numbers, hotThreshold]);
   const trend = useMemo(() => getTrend(numbers), [numbers]);
@@ -297,6 +302,8 @@ function ReportTemperatureChart({ temps, hotThreshold }) {
                 if (dist < MIN_DISTANCE + 2) r = 3;
               }
               lastRendered.push({ x, y, isHot });
+              const origReading = normalized[p.idx];
+              const label = origReading ? tempLabel(origReading, p.idx) : `#${p.idx + 1}`;
               circles.push(
                 <g key={`${p.idx}-${i}`}>
                   <circle
@@ -307,6 +314,7 @@ function ReportTemperatureChart({ temps, hotThreshold }) {
                     stroke="#fff"
                     strokeWidth="1.5"
                   />
+                  <title>{label}：{p.value.toFixed(1)}℃{isHot ? '（超温）' : ''}</title>
                 </g>
               );
             }
@@ -331,7 +339,7 @@ function ReportTemperatureChart({ temps, hotThreshold }) {
           <div className="report-hot-list">
             {hotPoints.map((hp, idx) => (
               <span key={idx} className="report-hot-chip">
-                <em>第{hp.index + 1}次</em>
+                <em>{tempLabel(hp, hp.index)}</em>
                 <b>{hp.value.toFixed(1)}℃</b>
               </span>
             ))}
