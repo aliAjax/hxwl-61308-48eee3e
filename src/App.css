@@ -4078,321 +4078,255 @@ textarea { min-height: 76px; resize: vertical; }
   }
 }
 
-.metric-danger {
-  background: linear-gradient(135deg, #fef2f2 0%, #fff 100%);
-  border: 2px solid #fecaca;
-  position: relative;
-}
+/* ========== 异常时效标记样式 ========== */
 
-.metric-danger::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, #dc2626 0%, #f87171 100%);
-  border-radius: 10px 10px 0 0;
+.metric-danger {
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%) !important;
+  border: 1px solid #fecaca !important;
 }
 
 .metric-danger span {
-  color: #b91c1c;
-  font-weight: 700;
+  color: #991b1b !important;
 }
 
 .metric-danger strong {
-  color: #dc2626;
-  animation: pulse-danger 2s ease-in-out infinite;
+  color: #dc2626 !important;
+  font-size: 32px !important;
 }
 
-@keyframes pulse-danger {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
-}
-
-.time-status-tag {
+.exception-timing-tag {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 3px 10px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.time-status-overdue {
-  background: #dc2626;
-  color: #fff;
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
-  animation: pulse-danger 2s ease-in-out infinite;
-}
-
-.time-status-soon {
-  background: #f59e0b;
-  color: #fff;
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
-}
-
-.time-status-completed {
-  background: #059669;
-  color: #fff;
-}
-
-.time-status-normal {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.time-status-none {
-  background: #f3f4f6;
-  color: #6b7280;
-}
-
-.exception-card.overdue {
-  border-color: #fca5a5;
-  background: linear-gradient(135deg, #fff 0%, #fef2f2 100%);
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.08);
-}
-
-.exception-card.overdue:hover {
-  box-shadow: 0 6px 20px rgba(220, 38, 38, 0.12), 0 0 0 3px rgba(220, 38, 38, 0.12);
-}
-
-.exception-card.soon {
-  border-color: #fcd34d;
-  background: linear-gradient(135deg, #fff 0%, #fffbeb 100%);
-}
-
-.exception-card.soon:hover {
-  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.1);
-}
-
-.exception-card.completed {
-  border-left: 4px solid #059669;
-  opacity: 0.85;
-}
-
-.exception-card-meta .deadline-info {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: #f8fafc;
-  font-weight: 600;
-}
-
-.exception-card-meta .deadline-info.overdue {
-  background: #fef2f2;
-  color: #b91c1c;
-  font-weight: 700;
-}
-
-.exception-card-meta .deadline-info.soon {
-  background: #fffbeb;
-  color: #b45309;
-  font-weight: 700;
-}
-
-.exception-card-meta .deadline-info.completed {
-  background: #ecfdf3;
-  color: #047857;
-}
-
-.exception-card-meta .processing-time {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: #f0f9ff;
-  color: #0369a1;
-  font-weight: 600;
-}
-
-.batch-exception-item.overdue {
-  background: #fef2f2;
-  border-color: #fca5a5;
-  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.06);
-}
-
-.batch-exception-item.soon {
-  background: #fffbeb;
-  border-color: #fcd34d;
-}
-
-.batch-exception-item.completed {
-  border-left: 4px solid #059669;
-}
-
-.route-has-overdue {
-  border-color: #fca5a5;
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.08);
-  background: linear-gradient(135deg, #fff 0%, #fef2f2 50%);
-}
-
-.route-exception-overdue {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px 8px;
-  background: #dc2626;
-  color: #fff;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 800;
-  animation: pulse-danger 2s ease-in-out infinite;
-}
-
-.route-card-footer {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px dashed #fecaca;
-}
-
-.route-unprocessed-exception {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  border-radius: 12px;
   font-size: 12px;
-  color: #b91c1c;
   font-weight: 600;
+  margin-left: 8px;
+  line-height: 1.4;
 }
 
-.route-unprocessed-exception em {
-  font-style: normal;
-  color: #dc2626;
-  font-weight: 800;
-}
-
-.dash-stat-card.warning {
-  background: linear-gradient(135deg, #fffbeb 0%, #ffffff 100%);
-  border-color: #fcd34d;
-}
-
-.dash-stat-card.warning::before {
-  background: #f59e0b;
-}
-
-.dash-stat-card.warning .dash-stat-icon {
-  background: #fef3c7;
-  color: #b45309;
-}
-
-.dash-stat-card.warning .dash-stat-value {
-  color: #b45309;
-}
-
-.dash-stat-card.success {
-  background: linear-gradient(135deg, #ecfdf5 0%, #ffffff 100%);
-  border-color: #a7f3d0;
-}
-
-.dash-stat-card.success::before {
-  background: #059669;
-}
-
-.dash-stat-card.success .dash-stat-icon {
-  background: #d1fae5;
-  color: #047857;
-}
-
-.dash-stat-card.success .dash-stat-value {
-  color: #047857;
-}
-
-.report-time-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
-  border-radius: 999px;
+.exception-timing-tag.small {
+  padding: 2px 8px;
   font-size: 11px;
-  font-weight: 800;
-  white-space: nowrap;
+  margin-left: 6px;
 }
 
-.report-time-status-overdue {
-  background: #dc2626;
-  color: #fff;
-}
-
-.report-time-status-soon {
-  background: #f59e0b;
-  color: #fff;
-}
-
-.report-time-status-completed {
-  background: #059669;
-  color: #fff;
-}
-
-.report-time-status-normal {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.report-time-status-none {
-  background: #f3f4f6;
-  color: #6b7280;
-}
-
-.report-exception-item.report-time-status-overdue {
+.exception-timing-tag.timing-overdue {
   background: #fef2f2;
-  border-color: #fecaca;
-  border-left-color: #dc2626;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  animation: pulse-overdue 2s ease-in-out infinite;
 }
 
-.report-exception-item.report-time-status-soon {
+.exception-timing-tag.timing-urgent {
   background: #fffbeb;
-  border-color: #fcd34d;
-  border-left-color: #f59e0b;
+  color: #d97706;
+  border: 1px solid #fde68a;
 }
 
-.report-exception-item.report-time-status-completed {
+.exception-timing-tag.timing-completed {
   background: #f0fdf4;
-  border-color: #a7f3d0;
-  border-left-color: #059669;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
 }
 
-.report-exception-meta .report-time-status-overdue,
-.report-exception-meta .report-time-status-soon,
-.report-exception-meta .report-time-status-completed,
-.report-exception-meta .report-time-status-normal {
+.exception-timing-tag.timing-normal {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
+}
+
+@keyframes pulse-overdue {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.3); }
+  50% { box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.1); }
+}
+
+/* 异常卡片 - 逾期高亮 */
+.exception-card.exception-timing-overdue {
+  border-left: 4px solid #dc2626;
+  background: linear-gradient(to right, #fef2f2 0%, #ffffff 8%);
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.08);
+}
+
+.exception-card.exception-timing-urgent {
+  border-left: 4px solid #d97706;
+  background: linear-gradient(to right, #fffbeb 0%, #ffffff 8%);
+}
+
+.exception-card.exception-timing-completed {
+  border-left: 4px solid #16a34a;
+}
+
+.exception-card.exception-timing-normal {
+  border-left: 4px solid #2563eb;
+}
+
+.exception-card-timing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: #f9fafb;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.exception-deadline,
+.exception-duration {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.exception-deadline {
+  font-weight: 500;
+  color: #374151;
+}
+
+/* 批次详情中的异常卡片样式 */
+.batch-exception-item.batch-exception-timing-overdue {
+  border-left: 3px solid #dc2626;
+  background: linear-gradient(to right, #fef2f2 0%, #ffffff 10%);
+}
+
+.batch-exception-item.batch-exception-timing-urgent {
+  border-left: 3px solid #d97706;
+  background: linear-gradient(to right, #fffbeb 0%, #ffffff 10%);
+}
+
+.batch-exception-item.batch-exception-timing-completed {
+  border-left: 3px solid #16a34a;
+}
+
+.batch-exception-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.batch-exception-head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.batch-exception-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.batch-exception-deadline {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-weight: 600;
+  font-weight: 500;
+  color: #4b5563;
+}
+
+/* 路线看板异常处理标记 */
+.route-stat-exception {
+  grid-column: 1 / -1;
+  border-top: 1px dashed #e5e7eb;
+  padding-top: 10px;
+  margin-top: 4px;
+}
+
+.route-stat-exception-values {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.route-exception-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 10px;
   font-size: 12px;
-  background: transparent;
-  border: 1px solid;
+  font-weight: 600;
 }
 
-.report-exception-meta .report-time-status-overdue {
+.route-exception-tag.unresolved {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.route-exception-tag.overdue {
   background: #fef2f2;
-  color: #b91c1c;
-  border-color: #fecaca;
+  color: #dc2626;
+  animation: pulse-overdue 2s ease-in-out infinite;
 }
 
-.report-exception-meta .report-time-status-soon {
+/* 只读输入框 */
+.readonly-input {
+  background: #f3f4f6 !important;
+  color: #6b7280;
+  cursor: not-allowed;
+}
+
+/* 合规报告异常时效样式 */
+.report-exception-timing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.report-exception-timing.timing-overdue {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.report-exception-timing.timing-urgent {
   background: #fffbeb;
-  color: #b45309;
-  border-color: #fcd34d;
+  color: #d97706;
+  border: 1px solid #fde68a;
 }
 
-.report-exception-meta .report-time-status-completed {
-  background: #ecfdf3;
-  color: #047857;
-  border-color: #a7f3d0;
+.report-exception-timing.timing-completed,
+.report-exception-timing.timing-normal {
+  background: #f0fdf4;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
 }
 
-.report-exception-meta .report-time-status-normal {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border-color: #bfdbfe;
+.report-exception-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.report-exception-head-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.report-exception-item.report-exception-timing-overdue {
+  border-left: 3px solid #dc2626;
+  background: linear-gradient(to right, #fef2f2 0%, #ffffff 10%);
+}
+
+.report-exception-item.report-exception-timing-urgent {
+  border-left: 3px solid #d97706;
+  background: linear-gradient(to right, #fffbeb 0%, #ffffff 10%);
 }
 
 

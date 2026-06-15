@@ -26,9 +26,6 @@ import {
   tempsToNumbers,
   normalizeTemps,
   tempLabel,
-  computeExceptionEfficiencyStats,
-  getExceptionTimeStatus,
-  getExceptionProcessingHours,
 } from '../utils/reportUtils';
 
 function downsample(data, maxPoints, hotThreshold) {
@@ -107,6 +104,101 @@ function getTrend(temps) {
   if (Math.abs(diff) < 0.3) return { type: 'stable', label: '基本稳定', diff };
   if (diff > 0) return { type: 'up', label: '呈上升趋势', diff };
   return { type: 'down', label: '呈下降趋势', diff };
+}
+
+function isExceptionResolved(status) {
+  return status === '已解决' || status === '已关闭';
+}
+
+function formatDurationHours(hours) {
+  if (!Number.isFinite(hours)) return '-';
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+  if (h >= 24) {
+    const d = Math.floor(h / 24);
+    const rh = h % 24;
+    return `${d}天${rh}小时${m}分`;
+  }
+  return `${h}小时${m}分`;
+}
+
+function getExceptionHandlingDuration(ex, now = new Date()) {
+  if (!ex.createdAt) return null;
+  const start = new Date(ex.createdAt);
+  const end = isExceptionResolved(ex.status) && ex.updatedAt ? new Date(ex.updatedAt) : now;
+  return (end - start) / (1000 * 60 * 60);
+}
+
+function computeExceptionTimelineSummary(exceptions, now = new Date()) {
+  if (!exceptions || exceptions.length === 0) return null;
+  let total = exceptions.length;
+  let resolved = 0;
+  let overdue = 0;
+  let urgent = 0;
+  let normal = 0;
+  let noDeadline = 0;
+  let onTimeResolved = 0;
+  let overdueResolved = 0;
+  const durations = [];
+  const overdueHours = [];
+
+  exceptions.forEach(ex => {
+    const resolvedEx = isExceptionResolved(ex.status);
+    if (resolvedEx) {
+      resolved++;
+      const dur = getExceptionHandlingDuration(ex, now);
+      if (dur !== null) durations.push(dur);
+      if (ex.requiredBy) {
+        const resolvedAt = ex.updatedAt ? new Date(ex.updatedAt) : now;
+        if (resolvedAt > new Date(ex.requiredBy)) {
+          overdueResolved++;
+          const oh = (resolvedAt - new Date(ex.requiredBy)) / (1000 * 60 * 60);
+          overdueHours.push(oh);
+        } else {
+          onTimeResolved++;
+        }
+      } else {
+        onTimeResolved++;
+      }
+    } else {
+      if (!ex.requiredBy) {
+        noDeadline++;
+      } else {
+        const deadline = new Date(ex.requiredBy);
+        const diffMs = deadline - now;
+        const diffHours = diffMs / (1000 * 60 * 60);
+        if (diffMs < 0) {
+          overdue++;
+          overdueHours.push(Math.abs(diffHours));
+        } else if (diffHours <= 24) {
+          urgent++;
+        } else {
+          normal++;
+        }
+      }
+    }
+  });
+
+  const avgDuration = durations.length > 0 ? durations.reduce((s, v) => s + v, 0) / durations.length : 0;
+  const avgOverdue = overdueHours.length > 0 ? overdueHours.reduce((s, v) => s + v, 0) / overdueHours.length : 0;
+  const onTimeRate = (resolved > 0 && (onTimeResolved + overdueResolved) > 0)
+    ? ((onTimeResolved / (onTimeResolved + overdueResolved)) * 100).toFixed(1)
+    : (resolved > 0 ? '100.0' : '0.0');
+
+  return {
+    total,
+    resolved,
+    unresolved: total - resolved,
+    overdue,
+    urgent,
+    normal,
+    noDeadline,
+    onTimeResolved,
+    overdueResolved,
+    avgDuration,
+    avgOverdue,
+    onTimeRate,
+  };
 }
 
 function ReportTemperatureChart({ temps, hotThreshold }) {
@@ -380,37 +472,7 @@ function ReportTemperatureChart({ temps, hotThreshold }) {
 export default function ComplianceReport({ snapshot, reportMeta, isSnapshot = false, hotThreshold = DEFAULT_HOT_THRESHOLD }) {
   const { batch, exceptions = [], generatedAt } = snapshot || {};
   const tempStats = useMemo(() => computeTemperatureStats(batch?.temps, hotThreshold), [batch?.temps, hotThreshold]);
-  const exceptionEfficiencyStats = useMemo(() => {
-    const reportTime = generatedAt ? new Date(generatedAt) : new Date();
-    return computeExceptionEfficiencyStats(exceptions, reportTime);
-  }, [exceptions, generatedAt]);
-
-  const timeStatusLabel = (status) => {
-    const labels = {
-      overdue: '逾期',
-      soon: '临期',
-      completed: '已完成',
-      normal: '正常',
-      none: '无期限',
-    };
-    return labels[status] || '正常';
-  };
-
-  const timeStatusClass = (status) => {
-    const classes = {
-      overdue: 'report-time-status-overdue',
-      soon: 'report-time-status-soon',
-      completed: 'report-time-status-completed',
-      normal: 'report-time-status-normal',
-      none: 'report-time-status-none',
-    };
-    return classes[status] || 'report-time-status-normal';
-  };
-
-  const formatHours = (hours) => {
-    if (hours >= 1) return `${hours.toFixed(1)}小时`;
-    return `${Math.round(hours * 60)}分钟`;
-  };
+  const exceptionTimelineSummary = useMemo(() => computeExceptionTimelineSummary(exceptions), [exceptions]);
 
   if (!batch) {
     return (
@@ -564,108 +626,146 @@ export default function ComplianceReport({ snapshot, reportMeta, isSnapshot = fa
         </div>
       )}
 
-      {exceptions.length > 0 && (
-        <>
-          <div className="report-section">
-            <div className="report-section-header">
-              <Clock size={18} />
-              <h3>异常处理时效摘要</h3>
+      {exceptions.length > 0 && exceptionTimelineSummary && (
+        <div className="report-section">
+          <div className="report-section-header">
+            <Clock size={18} />
+            <h3>异常处理时效摘要</h3>
+          </div>
+          <div className="report-temp-stats">
+            <div className="report-stat-item">
+              <span className="report-stat-label">异常总数</span>
+              <strong className="report-stat-value">{exceptionTimelineSummary.total}</strong>
             </div>
-            <div className="report-temp-stats">
-              <div className="report-stat-item">
-                <span className="report-stat-label">异常总数</span>
-                <strong className="report-stat-value">{exceptionEfficiencyStats.total}</strong>
-              </div>
-              <div className="report-stat-item">
-                <span className="report-stat-label">已完成</span>
-                <strong className={'report-stat-value ' + (exceptionEfficiencyStats.completedCount > 0 ? '' : '')}>
-                  {exceptionEfficiencyStats.completedCount}
-                </strong>
-              </div>
-              <div className="report-stat-item">
-                <span className="report-stat-label">未处理</span>
-                <strong className={'report-stat-value ' + (exceptionEfficiencyStats.unprocessedCount > 0 ? 'hot' : '')}>
-                  {exceptionEfficiencyStats.unprocessedCount}
-                </strong>
-              </div>
-              <div className="report-stat-item">
-                <span className="report-stat-label"><AlertTriangle size={11} /> 逾期数</span>
-                <strong className={'report-stat-value ' + (exceptionEfficiencyStats.overdueCount > 0 ? 'hot' : '')}>
-                  {exceptionEfficiencyStats.overdueCount}
-                </strong>
-              </div>
-              <div className="report-stat-item">
-                <span className="report-stat-label">平均处理时长</span>
-                <strong className="report-stat-value">
-                  {formatHours(exceptionEfficiencyStats.avgProcessingHours)}
-                </strong>
-              </div>
-              <div className="report-stat-item">
-                <span className="report-stat-label">按时完成率</span>
-                <strong className={'report-stat-value ' + (Number(exceptionEfficiencyStats.onTimeRate) < 100 ? 'hot' : '')}>
-                  {exceptionEfficiencyStats.onTimeRate}%
-                </strong>
-              </div>
+            <div className="report-stat-item">
+              <span className="report-stat-label">已完成</span>
+              <strong className={'report-stat-value ' + (exceptionTimelineSummary.resolved === exceptionTimelineSummary.total ? '' : '')}>
+                {exceptionTimelineSummary.resolved}
+              </strong>
             </div>
-            {exceptionEfficiencyStats.completedWithDeadlineCount > 0 && (
-              <div className="report-trend-bar">
-                <div className="report-trend-label">
-                  <CheckCircle2 size={14} />
-                  <span>按时完成 {exceptionEfficiencyStats.onTimeCompletedCount} / {exceptionEfficiencyStats.completedWithDeadlineCount} 条（含期限要求）</span>
-                </div>
+            <div className="report-stat-item">
+              <span className="report-stat-label">未处理</span>
+              <strong className={'report-stat-value ' + (exceptionTimelineSummary.unresolved > 0 ? 'hot' : '')}>
+                {exceptionTimelineSummary.unresolved}
+              </strong>
+            </div>
+            <div className="report-stat-item">
+              <span className="report-stat-label">
+                <AlertTriangle size={12} /> 逾期未处理
+              </span>
+              <strong className={'report-stat-value ' + (exceptionTimelineSummary.overdue > 0 ? 'hot' : '')}>
+                {exceptionTimelineSummary.overdue}
+              </strong>
+            </div>
+            <div className="report-stat-item">
+              <span className="report-stat-label">临期(24h内)</span>
+              <strong className="report-stat-value">{exceptionTimelineSummary.urgent}</strong>
+            </div>
+            <div className="report-stat-item">
+              <span className="report-stat-label">按时完成率</span>
+              <strong className={'report-stat-value ' + (Number(exceptionTimelineSummary.onTimeRate) < 100 ? 'hot' : '')}>
+                {exceptionTimelineSummary.onTimeRate}%
+              </strong>
+            </div>
+            {exceptionTimelineSummary.avgDuration > 0 && (
+              <div className="report-stat-item">
+                <span className="report-stat-label">平均处理耗时</span>
+                <strong className="report-stat-value">{formatDurationHours(exceptionTimelineSummary.avgDuration)}</strong>
+              </div>
+            )}
+            {exceptionTimelineSummary.avgOverdue > 0 && (
+              <div className="report-stat-item">
+                <span className="report-stat-label">平均逾期时长</span>
+                <strong className="report-stat-value hot">{formatDurationHours(exceptionTimelineSummary.avgOverdue)}</strong>
               </div>
             )}
           </div>
+        </div>
+      )}
 
-          <div className="report-section">
-            <div className="report-section-header">
-              <AlertTriangle size={18} />
-              <h3>交接异常记录</h3>
-              <span className="report-section-badge">{exceptions.length} 条</span>
-            </div>
-            <div className="report-exceptions">
-              {exceptions.map((ex, idx) => {
-                const reportTime = generatedAt ? new Date(generatedAt) : new Date();
-                const timeStatus = getExceptionTimeStatus(ex, reportTime);
-                const processingHours = getExceptionProcessingHours(ex, reportTime);
-                return (
-                  <div className={'report-exception-item ' + timeStatusClass(timeStatus)} key={ex.id || idx}>
-                    <div className="report-exception-head">
-                      <strong className="report-exception-type">{ex.problemType || '-'}</strong>
-                      <span className={'report-status ' + (
-                        ex.status === '已解决' || ex.status === '已关闭' ? 'status-compliant' :
-                        ex.status === '处理中' ? 'status-abnormal' : 'status-abnormal'
-                      )}>
-                        {ex.status || '-'}
-                      </span>
-                      <span className={'report-time-status ' + timeStatusClass(timeStatus)}>
-                        {timeStatusLabel(timeStatus)}
-                      </span>
-                    </div>
-                    <div className="report-exception-meta">
-                      <span>责任环节：{ex.responsibility || '-'}</span>
-                      {ex.handler && <span>处理人：{ex.handler}</span>}
-                      <span>登记时间：{formatDateTime(ex.createdAt)}</span>
-                    </div>
-                    <div className="report-exception-meta">
-                      {ex.deadline && (
-                        <span className={timeStatusClass(timeStatus)}>
-                          <Clock size={11} /> 要求完成：{formatDateTime(ex.deadline)}
-                        </span>
-                      )}
-                      <span>
-                        <Clock size={11} /> 处理时长：{formatHours(processingHours)}
-                      </span>
-                    </div>
-                    <div className="report-exception-desc">
-                      {ex.description || '无详细描述'}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+      {exceptions.length > 0 && (
+        <div className="report-section">
+          <div className="report-section-header">
+            <AlertTriangle size={18} />
+            <h3>交接异常记录</h3>
+            <span className="report-section-badge">{exceptions.length} 条</span>
           </div>
-        </>
+          <div className="report-exceptions">
+            {exceptions.map((ex, idx) => {
+              const resolved = isExceptionResolved(ex.status);
+              const now = new Date();
+              const duration = getExceptionHandlingDuration(ex, now);
+              let timingLabel = '';
+              let timingClass = '';
+              if (resolved) {
+                timingLabel = '已完成';
+                timingClass = 'timing-completed';
+                if (ex.requiredBy && ex.updatedAt) {
+                  const resolvedAt = new Date(ex.updatedAt);
+                  if (resolvedAt > new Date(ex.requiredBy)) {
+                    timingLabel = '逾期完成';
+                    timingClass = 'timing-overdue';
+                  } else {
+                    timingLabel = '按时完成';
+                  }
+                }
+              } else if (ex.requiredBy) {
+                const deadline = new Date(ex.requiredBy);
+                const diffMs = deadline - now;
+                const diffHours = diffMs / (1000 * 60 * 60);
+                if (diffMs < 0) {
+                  timingLabel = '逾期';
+                  timingClass = 'timing-overdue';
+                } else if (diffHours <= 24) {
+                  timingLabel = '临期';
+                  timingClass = 'timing-urgent';
+                } else {
+                  timingLabel = '正常';
+                  timingClass = 'timing-normal';
+                }
+              }
+              return (
+              <div className={'report-exception-item ' + (timingClass ? `report-exception-${timingClass}` : '')} key={ex.id || idx}>
+                <div className="report-exception-head">
+                  <div className="report-exception-head-left">
+                    <strong className="report-exception-type">{ex.problemType || '-'}</strong>
+                    <span className={'report-status ' + (
+                      ex.status === '已解决' || ex.status === '已关闭' ? 'status-compliant' :
+                      ex.status === '处理中' ? 'status-abnormal' : 'status-abnormal'
+                    )}>
+                      {ex.status || '-'}
+                    </span>
+                  </div>
+                  {timingLabel && (
+                    <span className={'report-exception-timing ' + timingClass}>
+                      {timingClass === 'timing-overdue' && <AlertTriangle size={10} />}
+                      {timingLabel}
+                    </span>
+                  )}
+                </div>
+                <div className="report-exception-meta">
+                  <span>责任环节：{ex.responsibility || '-'}</span>
+                  {ex.handler && <span>处理人：{ex.handler}</span>}
+                  <span>登记时间：{formatDateTime(ex.createdAt)}</span>
+                  {ex.requiredBy && (
+                    <span>
+                      <Clock size={10} /> 要求完成：{formatDateTime(ex.requiredBy)}
+                    </span>
+                  )}
+                  {duration !== null && (
+                    <span>
+                      {resolved ? '处理耗时' : '已登记'}：{formatDurationHours(duration)}
+                    </span>
+                  )}
+                </div>
+                <div className="report-exception-desc">
+                  {ex.description || '无详细描述'}
+                </div>
+              </div>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       <div className="report-footer">

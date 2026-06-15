@@ -253,124 +253,43 @@ function hasUnprocessedException(batchId, exceptions) {
   return exceptions.some((ex) => ex.batchId === batchId && (ex.status === '待处理' || ex.status === '处理中'));
 }
 
-const EXCEPTION_OVERDUE_HOURS = 0;
-const EXCEPTION_SOON_HOURS = 24;
+function isExceptionResolved(status) {
+  return status === '已解决' || status === '已关闭';
+}
 
-function getExceptionTimeStatus(ex) {
-  if (ex.status === '已解决' || ex.status === '已关闭') {
-    return 'completed';
-  }
-  if (!ex.deadline) {
-    return 'none';
-  }
-  const now = new Date();
-  const deadline = new Date(ex.deadline);
+function getExceptionTimelineStatus(ex, now = new Date()) {
+  const resolved = isExceptionResolved(ex.status);
+  if (resolved) return { key: 'completed', label: '已完成', class: 'timing-completed' };
+  if (!ex.requiredBy) return { key: 'none', label: '', class: '' };
+  const deadline = new Date(ex.requiredBy);
   const diffMs = deadline - now;
   const diffHours = diffMs / (1000 * 60 * 60);
-  if (diffHours < EXCEPTION_OVERDUE_HOURS) {
-    return 'overdue';
+  if (diffMs < 0) return { key: 'overdue', label: '逾期', class: 'timing-overdue', hoursOverdue: Math.abs(diffHours) };
+  if (diffHours <= 24) return { key: 'urgent', label: '临期', class: 'timing-urgent', hoursLeft: diffHours };
+  return { key: 'normal', label: '正常', class: 'timing-normal', hoursLeft: diffHours };
+}
+
+function isExceptionOverdue(ex, now = new Date()) {
+  return getExceptionTimelineStatus(ex, now).key === 'overdue';
+}
+
+function formatDurationHours(hours) {
+  if (!Number.isFinite(hours)) return '-';
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+  if (h >= 24) {
+    const d = Math.floor(h / 24);
+    const rh = h % 24;
+    return `${d}天${rh}小时${m}分`;
   }
-  if (diffHours <= EXCEPTION_SOON_HOURS) {
-    return 'soon';
-  }
-  return 'normal';
+  return `${h}小时${m}分`;
 }
 
-function getExceptionTimeStatusLabel(status) {
-  const labels = {
-    overdue: '逾期',
-    soon: '临期',
-    completed: '已完成',
-    normal: '正常',
-    none: '无期限',
-  };
-  return labels[status] || '正常';
-}
-
-function getExceptionTimeStatusClass(status) {
-  const classes = {
-    overdue: 'time-status-overdue',
-    soon: 'time-status-soon',
-    completed: 'time-status-completed',
-    normal: 'time-status-normal',
-    none: 'time-status-none',
-  };
-  return classes[status] || 'time-status-normal';
-}
-
-function getExceptionCardClass(status) {
-  const classes = {
-    overdue: 'overdue',
-    soon: 'soon',
-    completed: 'completed',
-    normal: '',
-    none: '',
-  };
-  return classes[status] || '';
-}
-
-function getExceptionDeadlineClass(status) {
-  const classes = {
-    overdue: 'deadline-info overdue',
-    soon: 'deadline-info soon',
-    completed: 'deadline-info completed',
-    normal: 'deadline-info',
-    none: 'deadline-info',
-  };
-  return classes[status] || 'deadline-info';
-}
-
-function getExceptionTagClass(status) {
-  return 'time-status-tag ' + getExceptionTimeStatusClass(status);
-}
-
-function getOverdueUnprocessedExceptions(exceptions) {
-  return exceptions.filter((ex) => {
-    const timeStatus = getExceptionTimeStatus(ex);
-    return timeStatus === 'overdue';
-  });
-}
-
-function getExceptionProcessingHours(ex) {
-  const createdAt = new Date(ex.createdAt);
-  const endTime = ex.status === '已解决' || ex.status === '已关闭'
-    ? new Date(ex.updatedAt || ex.createdAt)
-    : new Date();
-  return Math.max(0, (endTime - createdAt) / (1000 * 60 * 60));
-}
-
-function computeExceptionEfficiencyStats(exceptions) {
-  const total = exceptions.length;
-  const completed = exceptions.filter((ex) => ex.status === '已解决' || ex.status === '已关闭');
-  const overdue = getOverdueUnprocessedExceptions(exceptions);
-  const unprocessed = exceptions.filter((ex) => ex.status === '待处理' || ex.status === '处理中');
-
-  const completedWithDeadline = completed.filter((ex) => ex.deadline);
-  const onTimeCompleted = completedWithDeadline.filter((ex) => {
-    const updatedAt = new Date(ex.updatedAt || ex.createdAt);
-    const deadline = new Date(ex.deadline);
-    return updatedAt <= deadline;
-  });
-
-  const processingTimes = completed.map(getExceptionProcessingHours);
-  const avgProcessingHours = processingTimes.length > 0
-    ? processingTimes.reduce((s, v) => s + v, 0) / processingTimes.length
-    : 0;
-
-  const onTimeRate = completedWithDeadline.length > 0
-    ? ((onTimeCompleted.length / completedWithDeadline.length) * 100).toFixed(1)
-    : '0.0';
-
-  return {
-    total,
-    completedCount: completed.length,
-    unprocessedCount: unprocessed.length,
-    overdueCount: overdue.length,
-    avgProcessingHours,
-    onTimeRate,
-    onTimeCompletedCount: onTimeCompleted.length,
-    completedWithDeadlineCount: completedWithDeadline.length,
-  };
+function getExceptionHandlingDuration(ex, now = new Date()) {
+  if (!ex.createdAt) return null;
+  const start = new Date(ex.createdAt);
+  const end = isExceptionResolved(ex.status) && ex.updatedAt ? new Date(ex.updatedAt) : now;
+  return (end - start) / (1000 * 60 * 60);
 }
 
 function avg(numbers) {
@@ -863,7 +782,7 @@ function App() {
     description: '',
     status: exceptionConfig.primaryStatus,
     handler: '',
-    deadline: ''
+    requiredBy: ''
   });
   const [editingExceptionId, setEditingExceptionId] = useState(null);
   const [exceptionQuery, setExceptionQuery] = useState('');
@@ -1009,8 +928,9 @@ function App() {
   function openExceptionModal(batchId = '') {
     const availableBatches = records.filter((r) => r.status === '已到达' || r.status === '异常');
     const defaultBatchId = batchId || (availableBatches[0]?.id || '');
-    const defaultDeadline = new Date();
-    defaultDeadline.setDate(defaultDeadline.getDate() + 1);
+    const now = new Date();
+    const defaultDeadline = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const defaultDeadlineStr = defaultDeadline.toISOString().slice(0, 16);
     setExceptionForm({
       batchId: defaultBatchId,
       problemType: exceptionConfig.problemTypes[0],
@@ -1018,7 +938,7 @@ function App() {
       description: '',
       status: exceptionConfig.primaryStatus,
       handler: '',
-      deadline: defaultDeadline.toISOString().slice(0, 16)
+      requiredBy: defaultDeadlineStr
     });
     setEditingExceptionId(null);
     setShowExceptionModal(true);
@@ -1032,7 +952,7 @@ function App() {
       description: ex.description,
       status: ex.status,
       handler: ex.handler || '',
-      deadline: ex.deadline || ''
+      requiredBy: ex.requiredBy ? new Date(ex.requiredBy).toISOString().slice(0, 16) : ''
     });
     setEditingExceptionId(ex.id);
     setShowExceptionModal(true);
@@ -1049,15 +969,20 @@ function App() {
       return;
     }
 
+    const formPayload = {
+      ...exceptionForm,
+      requiredBy: exceptionForm.requiredBy || null
+    };
+
     if (editingExceptionId) {
       const next = exceptions.map((ex) => ex.id === editingExceptionId
-        ? { ...ex, ...exceptionForm, updatedAt: new Date().toISOString() }
+        ? { ...ex, ...formPayload, updatedAt: new Date().toISOString() }
         : ex);
       persistExceptions(next);
     } else {
       const newException = {
         id: uid(),
-        ...exceptionForm,
+        ...formPayload,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         timeline: [{ status: exceptionForm.status, at: today, by: exceptionForm.handler || '操作员' }]
@@ -1533,12 +1458,10 @@ function App() {
 
   const routeStats = useMemo(() => {
     const groups = {};
-    const batchIdToRoute = {};
     records.forEach((item) => {
       const key = `${item.from}→${item.to}`;
-      batchIdToRoute[item.id] = key;
       if (!groups[key]) {
-        groups[key] = { from: item.from, to: item.to, count: 0, abnormalCount: 0, temps: [], etas: [], exceptionOverdueCount: 0, exceptionUnprocessedCount: 0 };
+        groups[key] = { from: item.from, to: item.to, count: 0, abnormalCount: 0, temps: [], etas: [], exceptionCount: 0, overdueExceptionCount: 0, unresolvedExceptionCount: 0 };
       }
       groups[key].count += 1;
       if (item.status === '异常' || hasHotTemp(item, currentHotThreshold)) {
@@ -1548,16 +1471,17 @@ function App() {
       if (item.eta) {
         groups[key].etas.push(item.eta);
       }
-    });
-    exceptions.forEach((ex) => {
-      const routeKey = batchIdToRoute[ex.batchId];
-      if (!routeKey || !groups[routeKey]) return;
-      if (ex.status === '待处理' || ex.status === '处理中') {
-        groups[routeKey].exceptionUnprocessedCount += 1;
-        if (getExceptionTimeStatus(ex) === 'overdue') {
-          groups[routeKey].exceptionOverdueCount += 1;
+      const batchExceptions = exceptions.filter((ex) => ex.batchId === item.id);
+      groups[key].exceptionCount += batchExceptions.length;
+      const now = new Date();
+      batchExceptions.forEach((ex) => {
+        if (!isExceptionResolved(ex.status)) {
+          groups[key].unresolvedExceptionCount += 1;
+          if (isExceptionOverdue(ex, now)) {
+            groups[key].overdueExceptionCount += 1;
+          }
         }
-      }
+      });
     });
     return Object.entries(groups).map(([key, data]) => ({
       key,
@@ -1568,8 +1492,9 @@ function App() {
       avgTemp: data.temps.length > 0 ? avg(data.temps).toFixed(1) : '-',
       earliestEta: data.etas.length > 0 ? data.etas.sort()[0] : '-',
       abnormalCount: data.abnormalCount,
-      exceptionOverdueCount: data.exceptionOverdueCount,
-      exceptionUnprocessedCount: data.exceptionUnprocessedCount,
+      exceptionCount: data.exceptionCount,
+      overdueExceptionCount: data.overdueExceptionCount,
+      unresolvedExceptionCount: data.unresolvedExceptionCount,
     })).sort((a, b) => b.count - a.count);
   }, [records, currentHotThreshold, exceptions]);
 
@@ -1591,18 +1516,18 @@ function App() {
       });
   }, [records, filters, selectedRoute, filterHasException, exceptions]);
 
-  const overdueCount = getOverdueUnprocessedExceptions(exceptions).length;
-  const metrics = [
-    { label: "批次数", value: records.length },
-    { label: "异常批次", value: records.filter((item) => item.status === '异常' || hasHotTemp(item, currentHotThreshold)).length },
-    { label: "运输中", value: records.filter((item) => item.status === '运输中').length },
-    { 
-      label: "未处理交接异常" + (overdueCount > 0 ? `（逾期${overdueCount}）` : ''), 
-      value: exceptions.filter((ex) => ex.status === '待处理' || ex.status === '处理中').length, 
-      highlight: true,
-      danger: overdueCount > 0
-    },
-  ];
+  const metrics = useMemo(() => {
+    const now = new Date();
+    const unresolved = exceptions.filter((ex) => ex.status === '待处理' || ex.status === '处理中');
+    const overdueUnresolved = unresolved.filter((ex) => isExceptionOverdue(ex, now));
+    return [
+      { label: "批次数", value: records.length },
+      { label: "异常批次", value: records.filter((item) => item.status === '异常' || hasHotTemp(item, currentHotThreshold)).length },
+      { label: "运输中", value: records.filter((item) => item.status === '运输中').length },
+      { label: "未处理交接异常", value: unresolved.length, highlight: true },
+      { label: "未处理逾期异常", value: overdueUnresolved.length, highlight: true, danger: true },
+    ];
+  }, [records, exceptions, currentHotThreshold]);
 
   const filteredExceptions = useMemo(() => {
     return exceptions.filter((ex) => {
@@ -1910,17 +1835,23 @@ function App() {
                 ) : (
                   filteredExceptions.map((ex) => {
                     const batch = records.find((r) => r.id === ex.batchId);
-                    const timeStatus = getExceptionTimeStatus(ex);
-                    const processingHours = getExceptionProcessingHours(ex);
+                    const timingStatus = getExceptionTimelineStatus(ex);
+                    const duration = getExceptionHandlingDuration(ex);
                     return (
-                      <div className={'exception-card ' + getExceptionCardClass(timeStatus)} key={ex.id}>
+                      <div className={'exception-card ' + (timingStatus.class ? `exception-${timingStatus.class}` : '')} key={ex.id}>
                         <div className="exception-card-head">
                           <div>
                             <strong className="exception-type">{ex.problemType}</strong>
                             <span className={'exception-status ' + exceptionStatusClass(ex.status)}>{ex.status}</span>
-                            <span className={getExceptionTagClass(timeStatus)}>
-                              {getExceptionTimeStatusLabel(timeStatus)}
-                            </span>
+                            {timingStatus.label && (
+                              <span className={'exception-timing-tag ' + timingStatus.class}>
+                                {timingStatus.key === 'overdue' && <AlertTriangle size={10} />}
+                                {timingStatus.key === 'urgent' && <Clock size={10} />}
+                                {timingStatus.label}
+                                {timingStatus.key === 'overdue' && timingStatus.hoursOverdue && ` ${formatDurationHours(timingStatus.hoursOverdue)}`}
+                                {timingStatus.key === 'urgent' && timingStatus.hoursLeft && ` 剩${formatDurationHours(timingStatus.hoursLeft)}`}
+                              </span>
+                            )}
                           </div>
                           <div className="exception-card-actions">
                             <button type="button" onClick={() => editException(ex)} title="编辑"><Pencil size={14} /></button>
@@ -1934,17 +1865,17 @@ function App() {
                           <span>责任环节：{ex.responsibility}</span>
                           {ex.handler && <span>处理人：{ex.handler}</span>}
                         </div>
-                        <div className="exception-card-meta exception-time-meta">
-                          {ex.deadline && (
-                            <span className={getExceptionDeadlineClass(timeStatus)}>
-                              <Clock size={12} /> 要求完成：{new Date(ex.deadline).toLocaleString('zh-CN')}
+                        <div className="exception-card-timing">
+                          {ex.requiredBy && (
+                            <span className="exception-deadline">
+                              <Clock size={11} /> 要求完成：{new Date(ex.requiredBy).toLocaleString('zh-CN')}
                             </span>
                           )}
-                          <span className="processing-time">
-                            <Clock size={12} /> 已处理时长：{processingHours >= 1 
-                              ? `${processingHours.toFixed(1)}小时` 
-                              : `${Math.round(processingHours * 60)}分钟`}
-                          </span>
+                          {duration !== null && (
+                            <span className="exception-duration">
+                              {isExceptionResolved(ex.status) ? '处理耗时' : '已登记'}：{formatDurationHours(duration)}
+                            </span>
+                          )}
                         </div>
                         <p className="exception-card-desc">{ex.description}</p>
                         <div className="exception-card-footer">
@@ -2133,19 +2064,12 @@ function App() {
             routeStats.map((route) => (
               <article
                 key={route.key}
-                className={'route-card ' + (selectedRoute === route.key ? 'active' : '') + (route.exceptionOverdueCount > 0 ? ' route-has-overdue' : '')}
+                className={'route-card ' + (selectedRoute === route.key ? 'active' : '')}
                 onClick={() => setSelectedRoute(selectedRoute === route.key ? null : route.key)}
               >
                 <div className="route-card-head">
                   <span className="route-name">{route.from}<span className="route-arrow">→</span>{route.to}</span>
-                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                    {route.exceptionOverdueCount > 0 && (
-                      <span className="route-exception-overdue" title="逾期异常">
-                        <AlertTriangle size={10} />{route.exceptionOverdueCount}
-                      </span>
-                    )}
-                    <span className="route-batch-count">{route.count} 批</span>
-                  </div>
+                  <span className="route-batch-count">{route.count} 批</span>
                 </div>
                 <div className="route-card-stats">
                   <div className="route-stat">
@@ -2161,20 +2085,29 @@ function App() {
                     </strong>
                   </div>
                   <div className="route-stat">
-                    <span className="route-stat-label">逾期异常</span>
-                    <strong className={'route-stat-value ' + (route.exceptionOverdueCount > 0 ? 'abnormal' : 'normal')}>
-                      {route.exceptionOverdueCount}
+                    <span className="route-stat-label">最早计划到达</span>
+                    <strong className="route-stat-value eta">
+                      {route.earliestEta !== '-' ? route.earliestEta.replace('T', ' ') : '-'}
                     </strong>
                   </div>
+                  {(route.overdueExceptionCount > 0 || route.unresolvedExceptionCount > 0) && (
+                    <div className="route-stat route-stat-exception">
+                      <span className="route-stat-label">异常处理</span>
+                      <div className="route-stat-exception-values">
+                        {route.unresolvedExceptionCount > 0 && (
+                          <span className="route-exception-tag unresolved">
+                            待处理 {route.unresolvedExceptionCount}
+                          </span>
+                        )}
+                        {route.overdueExceptionCount > 0 && (
+                          <span className="route-exception-tag overdue">
+                            <AlertTriangle size={10} />逾期 {route.overdueExceptionCount}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                {route.exceptionUnprocessedCount > 0 && (
-                  <div className="route-card-footer">
-                    <span className="route-unprocessed-exception">
-                      <AlertTriangle size={11} /> 未处理异常 {route.exceptionUnprocessedCount} 条
-                      {route.exceptionOverdueCount > 0 && <em>（逾期 {route.exceptionOverdueCount}）</em>}
-                    </span>
-                  </div>
-                )}
               </article>
             ))
           )}
@@ -2370,50 +2303,53 @@ function App() {
                     </div>
                     <div className="batch-exceptions-list">
                       {batchExceptions.map((ex) => {
-                        const timeStatus = getExceptionTimeStatus(ex);
-                        const processingHours = getExceptionProcessingHours(ex);
+                        const timingStatus = getExceptionTimelineStatus(ex);
+                        const duration = getExceptionHandlingDuration(ex);
                         return (
-                          <div className={'batch-exception-item ' + getExceptionCardClass(timeStatus)} key={ex.id}>
-                            <div className="batch-exception-head">
+                        <div className={'batch-exception-item ' + (timingStatus.class ? `batch-exception-${timingStatus.class}` : '')} key={ex.id}>
+                          <div className="batch-exception-head">
+                            <div className="batch-exception-head-left">
                               <span className="batch-exception-type">{ex.problemType}</span>
                               <span className={'exception-status ' + exceptionStatusClass(ex.status)}>{ex.status}</span>
-                              <span className={getExceptionTagClass(timeStatus)}>
-                                {getExceptionTimeStatusLabel(timeStatus)}
+                            </div>
+                            {timingStatus.label && (
+                              <span className={'exception-timing-tag small ' + timingStatus.class}>
+                                {timingStatus.key === 'overdue' && <AlertTriangle size={9} />}
+                                {timingStatus.label}
                               </span>
-                            </div>
-                            <div className="batch-exception-meta">
-                              <span>责任：{ex.responsibility}</span>
-                              {ex.handler && <span>处理人：{ex.handler}</span>}
-                            </div>
-                            <div className="batch-exception-meta exception-time-meta">
-                              {ex.deadline && (
-                                <span className={getExceptionDeadlineClass(timeStatus)}>
-                                  <Clock size={11} /> 截止：{new Date(ex.deadline).toLocaleString('zh-CN')}
-                                </span>
-                              )}
-                              <span className="processing-time">
-                                <Clock size={11} /> 时长：{processingHours >= 1 
-                                  ? `${processingHours.toFixed(1)}h` 
-                                  : `${Math.round(processingHours * 60)}m`}
-                              </span>
-                            </div>
-                            <p className="batch-exception-desc">{ex.description}</p>
-                            <div className="batch-exception-actions">
-                              {exceptionConfig.statuses.map((status) => (
-                                ex.status !== status && (
-                                  <button key={status} type="button" className="exception-status-btn small" onClick={() => updateExceptionStatus(ex.id, status)}>
-                                    标记{status}
-                                  </button>
-                                )
-                              ))}
-                              <button type="button" className="exception-edit-btn" onClick={() => editException(ex)}>
-                                <Pencil size={12} />编辑
-                              </button>
-                              <button type="button" className="ghost-danger exception-edit-btn" onClick={() => removeException(ex.id)}>
-                                <Trash2 size={12} />删除
-                              </button>
-                            </div>
+                            )}
                           </div>
+                          <div className="batch-exception-meta">
+                            <span>责任：{ex.responsibility}</span>
+                            {ex.handler && <span>处理人：{ex.handler}</span>}
+                            {ex.requiredBy && (
+                              <span className="batch-exception-deadline">
+                                <Clock size={10} /> {new Date(ex.requiredBy).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                            {duration !== null && (
+                              <span>
+                                {isExceptionResolved(ex.status) ? '耗时' : '已'}：{formatDurationHours(duration)}
+                              </span>
+                            )}
+                          </div>
+                          <p className="batch-exception-desc">{ex.description}</p>
+                          <div className="batch-exception-actions">
+                            {exceptionConfig.statuses.map((status) => (
+                              ex.status !== status && (
+                                <button key={status} type="button" className="exception-status-btn small" onClick={() => updateExceptionStatus(ex.id, status)}>
+                                  标记{status}
+                                </button>
+                              )
+                            ))}
+                            <button type="button" className="exception-edit-btn" onClick={() => editException(ex)}>
+                              <Pencil size={12} />编辑
+                            </button>
+                            <button type="button" className="ghost-danger exception-edit-btn" onClick={() => removeException(ex.id)}>
+                              <Trash2 size={12} />删除
+                            </button>
+                          </div>
+                        </div>
                         );
                       })}
                     </div>
@@ -2743,17 +2679,13 @@ function App() {
                 </label>
               </div>
               <div className="form-grid">
-                <label className="wide">
+                <label>
                   <span><Clock size={14} /> 要求完成时间</span>
-                  <input
-                    type="datetime-local"
-                    value={exceptionForm.deadline}
-                    onChange={(e) => setExceptionForm({ ...exceptionForm, deadline: e.target.value })}
-                    placeholder="请选择要求完成时间"
-                  />
-                  <p className="hint small" style={{ marginTop: '4px', fontWeight: '500' }}>
-                    超过此时间未处理将标记为"逾期"，24小时内到期将标记为"临期"。
-                  </p>
+                  <input type="datetime-local" value={exceptionForm.requiredBy} onChange={(e) => setExceptionForm({ ...exceptionForm, requiredBy: e.target.value })} placeholder="请选择要求完成时间" />
+                </label>
+                <label>
+                  <span>登记时间</span>
+                  <input type="text" value={editingExceptionId ? (exceptions.find(e => e.id === editingExceptionId)?.createdAt ? new Date(exceptions.find(e => e.id === editingExceptionId).createdAt).toLocaleString('zh-CN') : '') : new Date().toLocaleString('zh-CN')} readOnly className="readonly-input" />
                 </label>
               </div>
               <label className="wide">
