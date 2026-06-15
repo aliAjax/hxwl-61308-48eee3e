@@ -180,13 +180,15 @@ function MiniTempChart({ temps, hotThreshold, width = 200, height = 60 }) {
   );
 }
 
-function StatCard({ icon: Icon, label, value, subValue, trend, trendType, onClick, clickable = false, highlight = false, accent = false, danger = false }) {
+function StatCard({ icon: Icon, label, value, subValue, trend, trendType, onClick, clickable = false, highlight = false, accent = false, danger = false, warning = false, success = false }) {
   const cardClass = [
     'dash-stat-card',
     clickable ? 'clickable' : '',
     highlight ? 'highlight' : '',
     accent ? 'accent' : '',
     danger ? 'danger' : '',
+    warning ? 'warning' : '',
+    success ? 'success' : '',
   ].filter(Boolean).join(' ');
 
   const trendIcon = trendType === 'up'
@@ -243,10 +245,33 @@ export default function ColdChainDashboard({
     const allTemps = todayRecords.flatMap(r => tempsToNumbers(r.temps)).filter(Number.isFinite);
     const overallTempStats = computeTemperatureStats(allTemps, hotThreshold);
 
+    const EXCEPTION_OVERDUE_HOURS = 0;
+    const EXCEPTION_SOON_HOURS = 24;
+    const now = new Date();
+    
+    function getExceptionTimeStatus(ex) {
+      if (ex.status === '已解决' || ex.status === '已关闭') {
+        return 'completed';
+      }
+      if (!ex.deadline) {
+        return 'none';
+      }
+      const deadline = new Date(ex.deadline);
+      const diffMs = deadline - now;
+      const diffHours = diffMs / (1000 * 60 * 60);
+      if (diffHours < EXCEPTION_OVERDUE_HOURS) {
+        return 'overdue';
+      }
+      if (diffHours <= EXCEPTION_SOON_HOURS) {
+        return 'soon';
+      }
+      return 'normal';
+    }
+
     const activeExceptions = exceptions.filter(e => e.status === '待处理' || e.status === '处理中').length;
     const resolvedExceptions = exceptions.filter(e => e.status === '已解决' || e.status === '已关闭').length;
-
-    const now = new Date();
+    const overdueExceptions = exceptions.filter(e => getExceptionTimeStatus(e) === 'overdue').length;
+    const soonExceptions = exceptions.filter(e => getExceptionTimeStatus(e) === 'soon').length;
     const soonBatches = records
       .filter(r => r.status === '运输中' && r.eta)
       .filter(r => {
@@ -283,6 +308,8 @@ export default function ColdChainDashboard({
       overallTempStats,
       activeExceptions,
       resolvedExceptions,
+      overdueExceptions,
+      soonExceptions,
       soonBatches,
       overdueBatches,
       reportableBatches: reportableBatches.length,
@@ -323,6 +350,9 @@ export default function ColdChainDashboard({
     arrivedBatches,
     overallTempStats,
     activeExceptions,
+    resolvedExceptions,
+    overdueExceptions,
+    soonExceptions,
     soonBatches,
     overdueBatches,
     unreportedBatches,
@@ -412,10 +442,25 @@ export default function ColdChainDashboard({
               icon={AlertCircle}
               label="未处理异常"
               value={activeExceptions}
-              subValue={activeExceptions > 0 ? '待及时处理' : '全部已处理'}
+              subValue={
+                (overdueExceptions > 0 ? `逾期 ${overdueExceptions}` : '') +
+                (overdueExceptions > 0 && soonExceptions > 0 ? ' · ' : '') +
+                (soonExceptions > 0 ? `临期 ${soonExceptions}` : '') +
+                (!overdueExceptions && !soonExceptions ? (activeExceptions > 0 ? '待及时处理' : '全部已处理') : '')
+              }
               clickable
               onClick={() => onDrillToExceptions?.()}
-              danger={activeExceptions > 0}
+              danger={overdueExceptions > 0}
+              warning={!overdueExceptions && soonExceptions > 0}
+            />
+            <StatCard
+              icon={CheckCircle2}
+              label="已解决异常"
+              value={resolvedExceptions}
+              subValue={activeExceptions > 0 ? `${activeExceptions} 条待处理` : '异常清零'}
+              clickable
+              onClick={() => onDrillToExceptions?.()}
+              success
             />
           </div>
 

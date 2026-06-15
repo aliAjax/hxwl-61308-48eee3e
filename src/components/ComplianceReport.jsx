@@ -26,6 +26,9 @@ import {
   tempsToNumbers,
   normalizeTemps,
   tempLabel,
+  computeExceptionEfficiencyStats,
+  getExceptionTimeStatus,
+  getExceptionProcessingHours,
 } from '../utils/reportUtils';
 
 function downsample(data, maxPoints, hotThreshold) {
@@ -377,6 +380,37 @@ function ReportTemperatureChart({ temps, hotThreshold }) {
 export default function ComplianceReport({ snapshot, reportMeta, isSnapshot = false, hotThreshold = DEFAULT_HOT_THRESHOLD }) {
   const { batch, exceptions = [], generatedAt } = snapshot || {};
   const tempStats = useMemo(() => computeTemperatureStats(batch?.temps, hotThreshold), [batch?.temps, hotThreshold]);
+  const exceptionEfficiencyStats = useMemo(() => {
+    const reportTime = generatedAt ? new Date(generatedAt) : new Date();
+    return computeExceptionEfficiencyStats(exceptions, reportTime);
+  }, [exceptions, generatedAt]);
+
+  const timeStatusLabel = (status) => {
+    const labels = {
+      overdue: '逾期',
+      soon: '临期',
+      completed: '已完成',
+      normal: '正常',
+      none: '无期限',
+    };
+    return labels[status] || '正常';
+  };
+
+  const timeStatusClass = (status) => {
+    const classes = {
+      overdue: 'report-time-status-overdue',
+      soon: 'report-time-status-soon',
+      completed: 'report-time-status-completed',
+      normal: 'report-time-status-normal',
+      none: 'report-time-status-none',
+    };
+    return classes[status] || 'report-time-status-normal';
+  };
+
+  const formatHours = (hours) => {
+    if (hours >= 1) return `${hours.toFixed(1)}小时`;
+    return `${Math.round(hours * 60)}分钟`;
+  };
 
   if (!batch) {
     return (
@@ -531,36 +565,107 @@ export default function ComplianceReport({ snapshot, reportMeta, isSnapshot = fa
       )}
 
       {exceptions.length > 0 && (
-        <div className="report-section">
-          <div className="report-section-header">
-            <AlertTriangle size={18} />
-            <h3>交接异常记录</h3>
-            <span className="report-section-badge">{exceptions.length} 条</span>
-          </div>
-          <div className="report-exceptions">
-            {exceptions.map((ex, idx) => (
-              <div className="report-exception-item" key={ex.id || idx}>
-                <div className="report-exception-head">
-                  <strong className="report-exception-type">{ex.problemType || '-'}</strong>
-                  <span className={'report-status ' + (
-                    ex.status === '已解决' || ex.status === '已关闭' ? 'status-compliant' :
-                    ex.status === '处理中' ? 'status-abnormal' : 'status-abnormal'
-                  )}>
-                    {ex.status || '-'}
-                  </span>
-                </div>
-                <div className="report-exception-meta">
-                  <span>责任环节：{ex.responsibility || '-'}</span>
-                  {ex.handler && <span>处理人：{ex.handler}</span>}
-                  <span>登记时间：{formatDateTime(ex.createdAt)}</span>
-                </div>
-                <div className="report-exception-desc">
-                  {ex.description || '无详细描述'}
+        <>
+          <div className="report-section">
+            <div className="report-section-header">
+              <Clock size={18} />
+              <h3>异常处理时效摘要</h3>
+            </div>
+            <div className="report-temp-stats">
+              <div className="report-stat-item">
+                <span className="report-stat-label">异常总数</span>
+                <strong className="report-stat-value">{exceptionEfficiencyStats.total}</strong>
+              </div>
+              <div className="report-stat-item">
+                <span className="report-stat-label">已完成</span>
+                <strong className={'report-stat-value ' + (exceptionEfficiencyStats.completedCount > 0 ? '' : '')}>
+                  {exceptionEfficiencyStats.completedCount}
+                </strong>
+              </div>
+              <div className="report-stat-item">
+                <span className="report-stat-label">未处理</span>
+                <strong className={'report-stat-value ' + (exceptionEfficiencyStats.unprocessedCount > 0 ? 'hot' : '')}>
+                  {exceptionEfficiencyStats.unprocessedCount}
+                </strong>
+              </div>
+              <div className="report-stat-item">
+                <span className="report-stat-label"><AlertTriangle size={11} /> 逾期数</span>
+                <strong className={'report-stat-value ' + (exceptionEfficiencyStats.overdueCount > 0 ? 'hot' : '')}>
+                  {exceptionEfficiencyStats.overdueCount}
+                </strong>
+              </div>
+              <div className="report-stat-item">
+                <span className="report-stat-label">平均处理时长</span>
+                <strong className="report-stat-value">
+                  {formatHours(exceptionEfficiencyStats.avgProcessingHours)}
+                </strong>
+              </div>
+              <div className="report-stat-item">
+                <span className="report-stat-label">按时完成率</span>
+                <strong className={'report-stat-value ' + (Number(exceptionEfficiencyStats.onTimeRate) < 100 ? 'hot' : '')}>
+                  {exceptionEfficiencyStats.onTimeRate}%
+                </strong>
+              </div>
+            </div>
+            {exceptionEfficiencyStats.completedWithDeadlineCount > 0 && (
+              <div className="report-trend-bar">
+                <div className="report-trend-label">
+                  <CheckCircle2 size={14} />
+                  <span>按时完成 {exceptionEfficiencyStats.onTimeCompletedCount} / {exceptionEfficiencyStats.completedWithDeadlineCount} 条（含期限要求）</span>
                 </div>
               </div>
-            ))}
+            )}
           </div>
-        </div>
+
+          <div className="report-section">
+            <div className="report-section-header">
+              <AlertTriangle size={18} />
+              <h3>交接异常记录</h3>
+              <span className="report-section-badge">{exceptions.length} 条</span>
+            </div>
+            <div className="report-exceptions">
+              {exceptions.map((ex, idx) => {
+                const reportTime = generatedAt ? new Date(generatedAt) : new Date();
+                const timeStatus = getExceptionTimeStatus(ex, reportTime);
+                const processingHours = getExceptionProcessingHours(ex, reportTime);
+                return (
+                  <div className={'report-exception-item ' + timeStatusClass(timeStatus)} key={ex.id || idx}>
+                    <div className="report-exception-head">
+                      <strong className="report-exception-type">{ex.problemType || '-'}</strong>
+                      <span className={'report-status ' + (
+                        ex.status === '已解决' || ex.status === '已关闭' ? 'status-compliant' :
+                        ex.status === '处理中' ? 'status-abnormal' : 'status-abnormal'
+                      )}>
+                        {ex.status || '-'}
+                      </span>
+                      <span className={'report-time-status ' + timeStatusClass(timeStatus)}>
+                        {timeStatusLabel(timeStatus)}
+                      </span>
+                    </div>
+                    <div className="report-exception-meta">
+                      <span>责任环节：{ex.responsibility || '-'}</span>
+                      {ex.handler && <span>处理人：{ex.handler}</span>}
+                      <span>登记时间：{formatDateTime(ex.createdAt)}</span>
+                    </div>
+                    <div className="report-exception-meta">
+                      {ex.deadline && (
+                        <span className={timeStatusClass(timeStatus)}>
+                          <Clock size={11} /> 要求完成：{formatDateTime(ex.deadline)}
+                        </span>
+                      )}
+                      <span>
+                        <Clock size={11} /> 处理时长：{formatHours(processingHours)}
+                      </span>
+                    </div>
+                    <div className="report-exception-desc">
+                      {ex.description || '无详细描述'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
       )}
 
       <div className="report-footer">

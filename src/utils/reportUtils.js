@@ -152,4 +152,68 @@ export function triggerPrint() {
   window.print();
 }
 
+const EXCEPTION_OVERDUE_HOURS = 0;
+const EXCEPTION_SOON_HOURS = 24;
+
+export function getExceptionTimeStatus(ex, now = new Date()) {
+  if (ex.status === '已解决' || ex.status === '已关闭') {
+    return 'completed';
+  }
+  if (!ex.deadline) {
+    return 'none';
+  }
+  const deadline = new Date(ex.deadline);
+  const diffMs = deadline - now;
+  const diffHours = diffMs / (1000 * 60 * 60);
+  if (diffHours < EXCEPTION_OVERDUE_HOURS) {
+    return 'overdue';
+  }
+  if (diffHours <= EXCEPTION_SOON_HOURS) {
+    return 'soon';
+  }
+  return 'normal';
+}
+
+export function getExceptionProcessingHours(ex, now = new Date()) {
+  const createdAt = new Date(ex.createdAt);
+  const endTime = ex.status === '已解决' || ex.status === '已关闭'
+    ? new Date(ex.updatedAt || ex.createdAt)
+    : now;
+  return Math.max(0, (endTime - createdAt) / (1000 * 60 * 60));
+}
+
+export function computeExceptionEfficiencyStats(exceptions, now = new Date()) {
+  const total = exceptions.length;
+  const completed = exceptions.filter((ex) => ex.status === '已解决' || ex.status === '已关闭');
+  const overdue = exceptions.filter((ex) => getExceptionTimeStatus(ex, now) === 'overdue');
+  const unprocessed = exceptions.filter((ex) => ex.status === '待处理' || ex.status === '处理中');
+
+  const completedWithDeadline = completed.filter((ex) => ex.deadline);
+  const onTimeCompleted = completedWithDeadline.filter((ex) => {
+    const updatedAt = new Date(ex.updatedAt || ex.createdAt);
+    const deadline = new Date(ex.deadline);
+    return updatedAt <= deadline;
+  });
+
+  const processingTimes = completed.map((ex) => getExceptionProcessingHours(ex, now));
+  const avgProcessingHours = processingTimes.length > 0
+    ? processingTimes.reduce((s, v) => s + v, 0) / processingTimes.length
+    : 0;
+
+  const onTimeRate = completedWithDeadline.length > 0
+    ? ((onTimeCompleted.length / completedWithDeadline.length) * 100).toFixed(1)
+    : '0.0';
+
+  return {
+    total,
+    completedCount: completed.length,
+    unprocessedCount: unprocessed.length,
+    overdueCount: overdue.length,
+    avgProcessingHours,
+    onTimeRate,
+    onTimeCompletedCount: onTimeCompleted.length,
+    completedWithDeadlineCount: completedWithDeadline.length,
+  };
+}
+
 export const REPORT_HOT_THRESHOLD = DEFAULT_HOT_THRESHOLD;

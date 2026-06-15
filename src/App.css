@@ -4078,4 +4078,321 @@ textarea { min-height: 76px; resize: vertical; }
   }
 }
 
+.metric-danger {
+  background: linear-gradient(135deg, #fef2f2 0%, #fff 100%);
+  border: 2px solid #fecaca;
+  position: relative;
+}
+
+.metric-danger::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #dc2626 0%, #f87171 100%);
+  border-radius: 10px 10px 0 0;
+}
+
+.metric-danger span {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.metric-danger strong {
+  color: #dc2626;
+  animation: pulse-danger 2s ease-in-out infinite;
+}
+
+@keyframes pulse-danger {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.time-status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.time-status-overdue {
+  background: #dc2626;
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
+  animation: pulse-danger 2s ease-in-out infinite;
+}
+
+.time-status-soon {
+  background: #f59e0b;
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+.time-status-completed {
+  background: #059669;
+  color: #fff;
+}
+
+.time-status-normal {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.time-status-none {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.exception-card.overdue {
+  border-color: #fca5a5;
+  background: linear-gradient(135deg, #fff 0%, #fef2f2 100%);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.08);
+}
+
+.exception-card.overdue:hover {
+  box-shadow: 0 6px 20px rgba(220, 38, 38, 0.12), 0 0 0 3px rgba(220, 38, 38, 0.12);
+}
+
+.exception-card.soon {
+  border-color: #fcd34d;
+  background: linear-gradient(135deg, #fff 0%, #fffbeb 100%);
+}
+
+.exception-card.soon:hover {
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.1);
+}
+
+.exception-card.completed {
+  border-left: 4px solid #059669;
+  opacity: 0.85;
+}
+
+.exception-card-meta .deadline-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #f8fafc;
+  font-weight: 600;
+}
+
+.exception-card-meta .deadline-info.overdue {
+  background: #fef2f2;
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.exception-card-meta .deadline-info.soon {
+  background: #fffbeb;
+  color: #b45309;
+  font-weight: 700;
+}
+
+.exception-card-meta .deadline-info.completed {
+  background: #ecfdf3;
+  color: #047857;
+}
+
+.exception-card-meta .processing-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #f0f9ff;
+  color: #0369a1;
+  font-weight: 600;
+}
+
+.batch-exception-item.overdue {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.06);
+}
+
+.batch-exception-item.soon {
+  background: #fffbeb;
+  border-color: #fcd34d;
+}
+
+.batch-exception-item.completed {
+  border-left: 4px solid #059669;
+}
+
+.route-has-overdue {
+  border-color: #fca5a5;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.08);
+  background: linear-gradient(135deg, #fff 0%, #fef2f2 50%);
+}
+
+.route-exception-overdue {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  background: #dc2626;
+  color: #fff;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  animation: pulse-danger 2s ease-in-out infinite;
+}
+
+.route-card-footer {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #fecaca;
+}
+
+.route-unprocessed-exception {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.route-unprocessed-exception em {
+  font-style: normal;
+  color: #dc2626;
+  font-weight: 800;
+}
+
+.dash-stat-card.warning {
+  background: linear-gradient(135deg, #fffbeb 0%, #ffffff 100%);
+  border-color: #fcd34d;
+}
+
+.dash-stat-card.warning::before {
+  background: #f59e0b;
+}
+
+.dash-stat-card.warning .dash-stat-icon {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.dash-stat-card.warning .dash-stat-value {
+  color: #b45309;
+}
+
+.dash-stat-card.success {
+  background: linear-gradient(135deg, #ecfdf5 0%, #ffffff 100%);
+  border-color: #a7f3d0;
+}
+
+.dash-stat-card.success::before {
+  background: #059669;
+}
+
+.dash-stat-card.success .dash-stat-icon {
+  background: #d1fae5;
+  color: #047857;
+}
+
+.dash-stat-card.success .dash-stat-value {
+  color: #047857;
+}
+
+.report-time-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.report-time-status-overdue {
+  background: #dc2626;
+  color: #fff;
+}
+
+.report-time-status-soon {
+  background: #f59e0b;
+  color: #fff;
+}
+
+.report-time-status-completed {
+  background: #059669;
+  color: #fff;
+}
+
+.report-time-status-normal {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.report-time-status-none {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.report-exception-item.report-time-status-overdue {
+  background: #fef2f2;
+  border-color: #fecaca;
+  border-left-color: #dc2626;
+}
+
+.report-exception-item.report-time-status-soon {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  border-left-color: #f59e0b;
+}
+
+.report-exception-item.report-time-status-completed {
+  background: #f0fdf4;
+  border-color: #a7f3d0;
+  border-left-color: #059669;
+}
+
+.report-exception-meta .report-time-status-overdue,
+.report-exception-meta .report-time-status-soon,
+.report-exception-meta .report-time-status-completed,
+.report-exception-meta .report-time-status-normal {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid;
+}
+
+.report-exception-meta .report-time-status-overdue {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.report-exception-meta .report-time-status-soon {
+  background: #fffbeb;
+  color: #b45309;
+  border-color: #fcd34d;
+}
+
+.report-exception-meta .report-time-status-completed {
+  background: #ecfdf3;
+  color: #047857;
+  border-color: #a7f3d0;
+}
+
+.report-exception-meta .report-time-status-normal {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
 
