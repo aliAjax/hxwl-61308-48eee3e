@@ -753,6 +753,8 @@ function App() {
     setShowReportModal(false);
     setActiveReportData(null);
     setActiveReportMeta(null);
+    setSelectedArchiveIdForForm(null);
+    setSyncArchivesOnEdit(true);
   }, [currentWorkspaceId]);
 
   const [form, setForm] = useState(appConfig.defaultValues);
@@ -767,6 +769,8 @@ function App() {
   const [archiveForm, setArchiveForm] = useState({ plate: '', driver: '', phone: '', from: '', to: '' });
   const [editingArchiveId, setEditingArchiveId] = useState(null);
   const [archiveQuery, setArchiveQuery] = useState('');
+  const [selectedArchiveIdForForm, setSelectedArchiveIdForForm] = useState(null);
+  const [syncArchivesOnEdit, setSyncArchivesOnEdit] = useState(true);
   const [selectedRoute, setSelectedRoute] = useState(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importValidation, setImportValidation] = useState([]);
@@ -1014,33 +1018,89 @@ function App() {
     event.preventDefault();
     if (!archiveForm.plate || !archiveForm.driver) return;
 
+    let nextRecords = records;
+
     if (editingArchiveId) {
       const next = archives.map((item) => item.id === editingArchiveId ? { ...item, ...archiveForm } : item);
       persistArchives(next);
+
+      if (syncArchivesOnEdit) {
+        const editedArchive = next.find((a) => a.id === editingArchiveId);
+        if (editedArchive) {
+          nextRecords = records.map((r) => {
+            if (r.archiveId === editingArchiveId && r.status !== '已到达') {
+              return {
+                ...r,
+                plate: editedArchive.plate,
+                driver: editedArchive.driver,
+                from: editedArchive.from || r.from,
+                to: editedArchive.to || r.to,
+                archiveSnapshot: {
+                  plate: editedArchive.plate,
+                  driver: editedArchive.driver,
+                  phone: editedArchive.phone || '',
+                  from: editedArchive.from || '',
+                  to: editedArchive.to || '',
+                },
+              };
+            }
+            return r;
+          });
+          if (nextRecords !== records) {
+            persist(nextRecords);
+            if (selected && nextRecords.find((r) => r.id === selected.id)) {
+              setSelected(nextRecords.find((r) => r.id === selected.id));
+            }
+          }
+        }
+      }
       setEditingArchiveId(null);
     } else {
       const nextArchive = { id: uid(), ...archiveForm };
       persistArchives([nextArchive, ...archives]);
     }
+    setSyncArchivesOnEdit(true);
     setArchiveForm({ plate: '', driver: '', phone: '', from: '', to: '' });
   }
 
   function editArchive(item) {
     setEditingArchiveId(item.id);
+    setSyncArchivesOnEdit(true);
     setArchiveForm({ plate: item.plate, driver: item.driver, phone: item.phone || '', from: item.from || '', to: item.to || '' });
   }
 
   function cancelEditArchive() {
     setEditingArchiveId(null);
+    setSyncArchivesOnEdit(true);
     setArchiveForm({ plate: '', driver: '', phone: '', from: '', to: '' });
   }
 
   function removeArchive(id) {
+    const linkedBatches = records.filter((r) => r.archiveId === id);
+    if (linkedBatches.length > 0) {
+      if (!confirm(`此档案关联了 ${linkedBatches.length} 个批次。删除档案后，这些批次仍将保留车牌、司机和线路的显示信息（使用快照），但不再与档案同步。是否继续删除？`)) {
+        return;
+      }
+      const nextRecords = records.map((r) => {
+        if (r.archiveId === id) {
+          return {
+            ...r,
+            archiveId: null,
+          };
+        }
+        return r;
+      });
+      persist(nextRecords);
+      if (selected && nextRecords.find((r) => r.id === selected.id)) {
+        setSelected(nextRecords.find((r) => r.id === selected.id));
+      }
+    }
     persistArchives(archives.filter((item) => item.id !== id));
     if (editingArchiveId === id) cancelEditArchive();
   }
 
   function selectArchiveForForm(item) {
+    setSelectedArchiveIdForForm(item.id);
     setForm({
       ...form,
       plate: item.plate || '',
@@ -1091,7 +1151,11 @@ function App() {
   }
 
   function exportRecords() {
-    const exportData = records.map(({ id, timeline, createdAt, conflict, ...rest }) => rest);
+    const exportData = records.map(({ id, timeline, createdAt, conflict, archiveId, archiveSnapshot, ...rest }) => ({
+      ...rest,
+      archiveId,
+      archiveSnapshot,
+    }));
     const jsonStr = JSON.stringify(exportData, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1176,6 +1240,8 @@ function App() {
           createdAt: new Date().toISOString(),
           timeline: [{ status: data.status || appConfig.primaryStatus, at: today, by: '导入' }],
           temps,
+          archiveId: data.archiveId || null,
+          archiveSnapshot: data.archiveSnapshot || null,
         };
       });
 
@@ -1293,9 +1359,18 @@ function App() {
 
   function addRecord(event) {
     event.preventDefault();
+    const selectedArchive = selectedArchiveIdForForm ? archives.find((a) => a.id === selectedArchiveIdForForm) : null;
     const nextRecord = {
       id: uid(),
       ...form,
+      archiveId: selectedArchiveIdForForm || null,
+      archiveSnapshot: selectedArchive ? {
+        plate: selectedArchive.plate,
+        driver: selectedArchive.driver,
+        phone: selectedArchive.phone || '',
+        from: selectedArchive.from || '',
+        to: selectedArchive.to || '',
+      } : null,
       status: form.status || appConfig.primaryStatus,
       createdAt: new Date().toISOString(),
       timeline: [{ status: form.status || appConfig.primaryStatus, at: today, by: '录入' }]
@@ -1315,6 +1390,7 @@ function App() {
 
     persist([nextRecord, ...records]);
     setForm(appConfig.defaultValues);
+    setSelectedArchiveIdForForm(null);
     setSelected(nextRecord);
   }
 
@@ -1335,7 +1411,20 @@ function App() {
   }
 
   function duplicateRecord(item) {
-    const copied = { ...item, id: uid(), status: appConfig.primaryStatus, timeline: [{ status: appConfig.primaryStatus, at: today, by: '复制' }] };
+    const copied = {
+      ...item,
+      id: uid(),
+      status: appConfig.primaryStatus,
+      timeline: [{ status: appConfig.primaryStatus, at: today, by: '复制' }],
+      archiveId: null,
+      archiveSnapshot: item.archiveSnapshot || (item.archiveId ? {
+        plate: item.plate,
+        driver: item.driver,
+        from: item.from,
+        to: item.to,
+        phone: archives.find((a) => a.id === item.archiveId)?.phone || '',
+      } : null),
+    };
     persist([copied, ...records]);
     setSelected(copied);
   }
@@ -1764,6 +1853,16 @@ function App() {
                   <input type="text" value={archiveForm.to} onChange={(e) => setArchiveForm({ ...archiveForm, to: e.target.value })} placeholder="上海江桥市场" />
                 </label>
               </div>
+              {editingArchiveId && (
+                <label className="sync-option">
+                  <input
+                    type="checkbox"
+                    checked={syncArchivesOnEdit}
+                    onChange={(e) => setSyncArchivesOnEdit(e.target.checked)}
+                  />
+                  <span>同时更新关联的「运输中」和「异常」批次中的车牌、司机和线路信息（已到达批次不更新）</span>
+                </label>
+              )}
               <div className="archive-form-actions">
                 <button type="submit" className="primary">
                   <Save size={16} />{editingArchiveId ? '保存修改' : '新增档案'}
@@ -1785,12 +1884,15 @@ function App() {
                 {filteredArchives.length === 0 ? (
                   <p className="empty">暂无档案数据</p>
                 ) : (
-                  filteredArchives.map((item) => (
+                  filteredArchives.map((item) => {
+                    const linkedCount = records.filter((r) => r.archiveId === item.id).length;
+                    return (
                     <div className="archive-card" key={item.id}>
                       <div className="archive-card-head">
                         <div>
                           <strong className="archive-plate">{item.plate}</strong>
                           <span className="archive-driver"><User size={13} /> {item.driver}</span>
+                          {linkedCount > 0 && <span className="archive-link-count">关联 {linkedCount} 批</span>}
                         </div>
                         <div className="archive-card-actions">
                           <button type="button" className="archive-use-btn" onClick={() => selectArchiveForForm(item)} title="用于新增记录"><FileStack size={14} />使用</button>
@@ -1803,7 +1905,8 @@ function App() {
                         {item.from && item.to && <span><Route size={12} /> {item.from} → {item.to}</span>}
                       </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -2124,10 +2227,14 @@ function App() {
             <label className="wide">
               <span><FolderKanban size={14} /> 从档案快速选择（可选）</span>
               <select
-                value=""
+                value={selectedArchiveIdForForm || ''}
                 onChange={(e) => {
-                  const item = archives.find((a) => a.id === e.target.value);
-                  if (item) selectArchiveForForm(item);
+                  if (e.target.value) {
+                    const item = archives.find((a) => a.id === e.target.value);
+                    if (item) selectArchiveForForm(item);
+                  } else {
+                    setSelectedArchiveIdForForm(null);
+                  }
                 }}
               >
                 <option value="">手动输入或选择档案...</option>
@@ -2138,6 +2245,13 @@ function App() {
                 ))}
               </select>
             </label>
+            {selectedArchiveIdForForm && (
+              <div className="archive-selected-hint">
+                <CheckCircle2 size={14} />
+                <span>已关联档案，保存后将记录档案ID。若手动修改车牌/司机/线路将保留当前输入值。</span>
+                <button type="button" className="ghost-danger small-btn" onClick={() => setSelectedArchiveIdForForm(null)}>取消关联</button>
+              </div>
+            )}
             <p className="hint small">选择档案将自动回填车牌、司机、出发地和目的地，也可手动修改任意字段。</p>
           </div>
           <div className="form-grid">
@@ -2145,13 +2259,19 @@ function App() {
               <label key={field.key} className={field.type === 'textarea' ? 'wide' : ''}>
                 <span>{field.label}</span>
                 {field.type === 'textarea' ? (
-                  <textarea value={form[field.key] || ''} onChange={(event) => setForm({ ...form, [field.key]: event.target.value })} placeholder={field.placeholder} />
+                  <textarea value={form[field.key] || ''} onChange={(event) => {
+                    if (['plate', 'driver', 'from', 'to'].includes(field.key) && selectedArchiveIdForForm) {
+                    }
+                    setForm({ ...form, [field.key]: event.target.value });
+                  }} placeholder={field.placeholder} />
                 ) : field.type === 'select' ? (
                   <select value={form[field.key] || ''} onChange={(event) => setForm({ ...form, [field.key]: event.target.value })}>
                     {field.options.map((option) => <option key={option}>{option}</option>)}
                   </select>
                 ) : (
-                  <input type={field.type} value={form[field.key] || ''} onChange={(event) => setForm({ ...form, [field.key]: event.target.value })} placeholder={field.placeholder} />
+                  <input type={field.type} value={form[field.key] || ''} onChange={(event) => {
+                    setForm({ ...form, [field.key]: event.target.value });
+                  }} placeholder={field.placeholder} />
                 )}
               </label>
             ))}
@@ -2196,12 +2316,20 @@ function App() {
             {filteredRecords.map((item) => {
               const itemExceptions = getExceptionsForBatch(item.id, exceptions);
               const hasUnprocessed = hasUnprocessedException(item.id, exceptions);
+              const linkedArchive = item.archiveId ? archives.find((a) => a.id === item.archiveId) : null;
+              const archiveInfo = linkedArchive || item.archiveSnapshot;
               return (
                 <article className={'record ' + (item.conflict || hasOverlap(item, records) ? 'conflict' : '') + (hasUnprocessed ? ' has-unprocessed-exception' : '')} key={item.id} onClick={() => setSelected(item)}>
                   <div className="record-head">
                     <div>
                       <h3>{item.goods}</h3>
                       <p>{`${item.plate} · ${item.from} → ${item.to}`}</p>
+                      {archiveInfo && (item.archiveId || item.archiveSnapshot) && (
+                        <p className="record-archive-tag">
+                          <FolderKanban size={11} />
+                          {item.archiveId ? '关联档案' : '档案快照'}{item.archiveSnapshot && item.archiveSnapshot.phone ? ` · ${item.archiveSnapshot.phone}` : ''}
+                        </p>
+                      )}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {itemExceptions.length > 0 && (
@@ -2273,6 +2401,30 @@ function App() {
               <h3>{selected.goods}</h3>
               <p>{`${selected.plate} · ${selected.from} → ${selected.to}`}</p>
               <p>{`司机${selected.driver}｜最近温度${latestTemp(selected)}℃｜${hasHotTemp(selected, currentHotThreshold) ? '已超温' : '温度正常'}`}</p>
+              {(selected.archiveId || selected.archiveSnapshot) && (
+                <div className="detail-archive-info">
+                  <div className="detail-archive-title">
+                    <FolderKanban size={14} />
+                    <strong>
+                      {selected.archiveId
+                        ? archives.find((a) => a.id === selected.archiveId)
+                          ? '已关联档案（实时同步）'
+                          : '档案已删除，使用快照'
+                        : '档案快照（历史数据）'}
+                    </strong>
+                  </div>
+                  {selected.archiveSnapshot && (
+                    <div className="detail-archive-snapshot">
+                      <span>车牌：{selected.archiveSnapshot.plate || '-'}</span>
+                      <span>司机：{selected.archiveSnapshot.driver || '-'}</span>
+                      {selected.archiveSnapshot.phone && <span>电话：{selected.archiveSnapshot.phone}</span>}
+                      {selected.archiveSnapshot.from && selected.archiveSnapshot.to && (
+                        <span>线路：{selected.archiveSnapshot.from} → {selected.archiveSnapshot.to}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="actions" style={{ marginTop: '8px' }}>
                 <button type="button" className="gen-report-btn" onClick={() => generateReportForBatch(selected)}>
                   <FileText size={14} />生成合规报告

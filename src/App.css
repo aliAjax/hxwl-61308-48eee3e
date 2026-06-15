@@ -4329,4 +4329,145 @@ textarea { min-height: 76px; resize: vertical; }
   background: linear-gradient(to right, #fffbeb 0%, #ffffff 10%);
 }
 
+.archive-link-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #eff6ff;
+  color: #2563eb;
+  border-radius: 10px;
+  border: 1px solid #bfdbfe;
+}
+
+.archive-selected-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: #166534;
+}
+
+.archive-selected-hint span {
+  flex: 1;
+}
+
+.archive-selected-hint .small-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+.sync-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin: 10px 0;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.sync-option:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.sync-option input[type="checkbox"] {
+  margin-top: 3px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.sync-option span {
+  font-size: 13px;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.record-archive-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  background: #eff6ff;
+  color: #1e40af;
+  border-radius: 4px;
+  border: 1px solid #dbeafe;
+}
+
+.detail-archive-info {
+  margin: 12px 0;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.detail-archive-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #334155;
+}
+
+.detail-archive-title strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.detail-archive-snapshot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding-left: 22px;
+}
+
+.detail-archive-snapshot span {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.detail-archive-snapshot span::before {
+  content: '·';
+  margin-right: 6px;
+  color: #94a3b8;
+}
+
+.detail-archive-snapshot span:first-child::before {
+  display: none;
+}
+
+.ghost-danger.small-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ghost-danger.small-btn:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
 
