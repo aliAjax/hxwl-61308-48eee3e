@@ -1080,6 +1080,7 @@ function App() {
     const validItems = importValidation
       .filter(v => v.valid)
       .map(v => ({
+        ...v.data,
         id: uid(),
         status: v.data.status || appConfig.primaryStatus,
         createdAt: new Date().toISOString(),
@@ -1087,7 +1088,6 @@ function App() {
         temps: Array.isArray(v.data.temps)
           ? v.data.temps.map(t => Number(t)).filter(Number.isFinite)
           : (v.data.temperature !== undefined && v.data.temperature !== null ? [Number(v.data.temperature)].filter(Number.isFinite) : []),
-        ...v.data,
       }));
 
     if (validItems.length === 0) {
