@@ -815,7 +815,6 @@ function App() {
     skipDuplicateRecords: true,
     skipDuplicateArchives: true,
     skipDuplicateReports: true,
-    keepOrphans: false,
   });
   const wsImportInputRef = useRef(null);
   const workspaceMenuRef = useRef(null);
@@ -1364,7 +1363,6 @@ function App() {
           skipDuplicateRecords: true,
           skipDuplicateArchives: true,
           skipDuplicateReports: true,
-          keepOrphans: false,
         });
         setShowWsImportModal(true);
       } catch (err) {
@@ -1418,8 +1416,8 @@ function App() {
           `合并完成！\n` +
           `新增批次：${stats.addedRecords} 条（跳过 ${stats.skippedRecords} 条重复）\n` +
           `新增档案：${stats.addedArchives} 条（跳过 ${stats.skippedArchives} 条重复）\n` +
-          `新增异常：${stats.addedExceptions} 条\n` +
-          `新增报告：${stats.addedReports} 份（跳过 ${stats.skippedReports} 份重复）`
+          `新增异常：${stats.addedExceptions} 条（丢弃 ${stats.orphanExceptionsDropped} 条孤立异常）\n` +
+          `新增报告：${stats.addedReports} 份（跳过 ${stats.skippedReports} 份重复，丢弃 ${stats.orphanReportsDropped} 份孤立报告）`
         );
       } else {
         alert('合并失败');
@@ -3055,28 +3053,25 @@ function App() {
                   <div className="ws-merge-options">
                     <div className="ws-merge-options-title warning-title">
                       <AlertTriangle size={16} />
-                      <span>孤立数据</span>
+                      <span>孤立数据（不会被导入）</span>
+                    </div>
+                    <div className="ws-merge-orphan-list">
+                      {wsMergeAnalysis.orphans.exceptions.length > 0 && (
+                        <div className="orphan-item">
+                          <AlertTriangle size={14} className="orphan-icon" />
+                          <span>{wsMergeAnalysis.orphans.exceptions.length} 条异常记录无对应批次，将被丢弃</span>
+                        </div>
+                      )}
+                      {wsMergeAnalysis.orphans.reports.length > 0 && (
+                        <div className="orphan-item">
+                          <AlertTriangle size={14} className="orphan-icon" />
+                          <span>{wsMergeAnalysis.orphans.reports.length} 份报告无对应批次，将被丢弃</span>
+                        </div>
+                      )}
                     </div>
                     <p className="ws-merge-orphan-desc">
-                      检测到 {wsMergeAnalysis.orphans.exceptions.length + wsMergeAnalysis.orphans.reports.length} 条数据
-                      关联的批次在导入文件中不存在。
-                      孤立数据默认不会被导入，以避免出现指向不存在批次的记录。
+                      为保证数据一致性，孤立的异常和报告不会被导入，避免出现指向不存在批次的记录。
                     </p>
-                    <label className="ws-merge-option-item">
-                      <input
-                        type="checkbox"
-                        checked={wsMergeOptions.keepOrphans}
-                        onChange={(e) => setWsMergeOptions({
-                          ...wsMergeOptions,
-                          keepOrphans: e.target.checked,
-                        })}
-                      />
-                      <span className="option-checkbox" />
-                      <span className="option-label">仍然导入孤立数据</span>
-                      <span className="option-desc warning-desc">
-                        警告：导入后这些数据将无法关联到任何批次，可能导致数据不一致
-                      </span>
-                    </label>
                   </div>
                 )}
               </div>

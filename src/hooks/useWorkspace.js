@@ -312,8 +312,10 @@ function getArchiveDuplicateKey(archive) {
 
 function getReportDuplicateKey(report) {
   const batchLabel = (report.batchLabel || '').trim();
-  const createdAt = (report.createdAt || '').trim().slice(0, 16);
-  return `${batchLabel}|${createdAt}`;
+  const generatedAt = (report.snapshot?.generatedAt || report.createdAt || '').trim().slice(0, 19);
+  const version = report.version ?? 1;
+  const exceptionCount = Array.isArray(report.snapshot?.exceptions) ? report.snapshot.exceptions.length : 0;
+  return `${batchLabel}|${generatedAt}|v${version}|${exceptionCount}`;
 }
 
 export function analyzeMergeData(sourceData, targetRecords, targetArchives, targetReports) {
@@ -415,18 +417,15 @@ export function executeMerge(analysis, targetRecords, targetArchives, targetExce
     skipDuplicateRecords = true,
     skipDuplicateArchives = true,
     skipDuplicateReports = true,
-    keepOrphans = false,
   } = options;
 
   const { sourceData, duplicates } = analysis;
 
   const idMap = new Map();
 
-  const skippedRecordIds = new Set();
   if (skipDuplicateRecords) {
     duplicates.records.forEach(d => {
       if (d.source.id) idMap.set(d.source.id, d.existingId);
-      skippedRecordIds.add(d.existingId);
     });
   }
 
@@ -455,11 +454,9 @@ export function executeMerge(analysis, targetRecords, targetArchives, targetExce
     });
   }
 
-  const skippedArchiveIds = new Set();
   if (skipDuplicateArchives) {
     duplicates.archives.forEach(d => {
       if (d.source.id) idMap.set(d.source.id, d.existingId);
-      skippedArchiveIds.add(d.existingId);
     });
   }
 
@@ -479,10 +476,7 @@ export function executeMerge(analysis, targetRecords, targetArchives, targetExce
   }
 
   const mergedExceptions = sourceData.exceptions
-    .filter(ex => {
-      if (!keepOrphans && !idMap.has(ex.batchId)) return false;
-      return true;
-    })
+    .filter(ex => idMap.has(ex.batchId))
     .map(ex => ({
       ...ex,
       id: uid(),
@@ -492,7 +486,7 @@ export function executeMerge(analysis, targetRecords, targetArchives, targetExce
   const newReports = [];
   if (skipDuplicateReports) {
     analysis.newItems.reports.forEach(r => {
-      if (!keepOrphans && !idMap.has(r.batchId)) return;
+      if (!idMap.has(r.batchId)) return;
       const newId = uid();
       newReports.push({
         ...r,
@@ -502,7 +496,7 @@ export function executeMerge(analysis, targetRecords, targetArchives, targetExce
     });
   } else {
     sourceData.reports.forEach(r => {
-      if (!keepOrphans && !idMap.has(r.batchId)) return;
+      if (!idMap.has(r.batchId)) return;
       const newId = uid();
       newReports.push({
         ...r,
@@ -530,6 +524,8 @@ export function executeMerge(analysis, targetRecords, targetArchives, targetExce
       skippedRecords: duplicates.records.length * (skipDuplicateRecords ? 1 : 0),
       skippedArchives: duplicates.archives.length * (skipDuplicateArchives ? 1 : 0),
       skippedReports: duplicates.reports.length * (skipDuplicateReports ? 1 : 0),
+      orphanExceptionsDropped: analysis.orphans.exceptions.length,
+      orphanReportsDropped: analysis.orphans.reports.length,
     },
   };
 }
