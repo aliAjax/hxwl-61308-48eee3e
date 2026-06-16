@@ -3041,7 +3041,7 @@ function App() {
                             跳过重复报告（{wsMergeAnalysis.duplicates.reports.length} 份）
                           </span>
                           <span className="option-desc">
-                            同一批次同一时间生成的报告，保留当前工作区的记录
+                            报告编号相同的报告，保留当前工作区的记录
                           </span>
                         </label>
                       )}

@@ -311,6 +311,8 @@ function getArchiveDuplicateKey(archive) {
 }
 
 function getReportDuplicateKey(report) {
+  const reportId = (report.id || '').trim();
+  if (reportId) return `id:${reportId}`;
   const batchLabel = (report.batchLabel || '').trim();
   const generatedAt = (report.snapshot?.generatedAt || report.createdAt || '').trim().slice(0, 19);
   const version = report.version ?? 1;
