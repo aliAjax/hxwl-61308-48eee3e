@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { ThermometerSnowflake, Plus, Search, Trash2, RotateCcw, CheckCircle2, AlertTriangle, ClipboardList, CalendarDays, Truck, X, ListPlus, CarFront, User, Phone, Route, Pencil, Save, FolderKanban, FileStack, TrendingUp, TrendingDown, Minus, ArrowUp, ArrowDown, Download, Upload, FileJson, ChevronDown, Layers, Settings, LogOut, FileText, Printer, Eye, Clock, LayoutDashboard } from 'lucide-react';
-import { useWorkspace, getStorageKeys } from './hooks/useWorkspace';
+import { useWorkspace, getStorageKeys, analyzeMergeData } from './hooks/useWorkspace';
 import ComplianceReport from './components/ComplianceReport';
 import ColdChainDashboard from './components/ColdChainDashboard';
 import {
@@ -732,7 +732,7 @@ function loadReportsFor(keys) {
 
 function App() {
   const workspace = useWorkspace();
-  const { workspaces, currentWorkspace, currentWorkspaceId, currentHotThreshold, storageKeys, switchWorkspace, createWorkspace, renameWorkspace, deleteWorkspace, setHotThreshold, exportWorkspace, importWorkspace } = workspace;
+  const { workspaces, currentWorkspace, currentWorkspaceId, currentHotThreshold, storageKeys, switchWorkspace, createWorkspace, renameWorkspace, deleteWorkspace, setHotThreshold, exportWorkspace, importWorkspace, mergeIntoWorkspace } = workspace;
 
   const [records, setRecords] = useState(() => storageKeys ? loadRecordsFor(storageKeys) : withIds(appConfig.seed));
   const [archives, setArchives] = useState(() => storageKeys ? loadArchivesFor(storageKeys) : withIds(archiveConfig.seed));
@@ -807,6 +807,16 @@ function App() {
   const [workspaceForm, setWorkspaceForm] = useState({ name: '' });
   const [editingWorkspaceId, setEditingWorkspaceId] = useState(null);
   const [showWsImportModal, setShowWsImportModal] = useState(false);
+  const [wsImportMode, setWsImportMode] = useState('new');
+  const [wsImportData, setWsImportData] = useState(null);
+  const [wsImportFileName, setWsImportFileName] = useState('');
+  const [wsMergeAnalysis, setWsMergeAnalysis] = useState(null);
+  const [wsMergeOptions, setWsMergeOptions] = useState({
+    skipDuplicateRecords: true,
+    skipDuplicateArchives: true,
+    skipDuplicateReports: true,
+    keepOrphans: false,
+  });
   const wsImportInputRef = useRef(null);
   const workspaceMenuRef = useRef(null);
 
@@ -1346,13 +1356,17 @@ function App() {
           alert('无效的工作区数据文件');
           return;
         }
-        const result = importWorkspace(parsed, true);
-        if (result) {
-          alert(`已成功导入工作区"${result.name}"`);
-          switchWorkspace(result.id);
-        } else {
-          alert('导入失败');
-        }
+        setWsImportData(parsed);
+        setWsImportFileName(file.name);
+        setWsImportMode('new');
+        setWsMergeAnalysis(null);
+        setWsMergeOptions({
+          skipDuplicateRecords: true,
+          skipDuplicateArchives: true,
+          skipDuplicateReports: true,
+          keepOrphans: false,
+        });
+        setShowWsImportModal(true);
       } catch (err) {
         alert('文件解析失败：' + (err instanceof Error ? err.message : '无效的JSON格式'));
       } finally {
@@ -1364,6 +1378,65 @@ function App() {
       if (wsImportInputRef.current) wsImportInputRef.current.value = '';
     };
     reader.readAsText(file);
+  }
+
+  function handleWsImportModeChange(mode) {
+    setWsImportMode(mode);
+    if (mode === 'merge' && wsImportData) {
+      const analysis = analyzeMergeData(wsImportData, records, archives, reports);
+      setWsMergeAnalysis(analysis);
+    } else {
+      setWsMergeAnalysis(null);
+    }
+  }
+
+  function confirmWsImport() {
+    if (!wsImportData) return;
+
+    if (wsImportMode === 'new') {
+      const result = importWorkspace(wsImportData, true);
+      if (result) {
+        alert(`已成功导入工作区"${result.name}"`);
+        switchWorkspace(result.id);
+      } else {
+        alert('导入失败');
+      }
+    } else if (wsImportMode === 'merge') {
+      if (!currentWorkspaceId) {
+        alert('当前没有选中的工作区');
+        return;
+      }
+      const result = mergeIntoWorkspace(currentWorkspaceId, wsImportData, wsMergeOptions);
+      if (result) {
+        const { stats } = result;
+        const keys = getStorageKeys(currentWorkspaceId);
+        setRecords(JSON.parse(localStorage.getItem(keys.records) || '[]'));
+        setArchives(JSON.parse(localStorage.getItem(keys.archives) || '[]'));
+        setExceptions(JSON.parse(localStorage.getItem(keys.exceptions) || '[]'));
+        setReports(JSON.parse(localStorage.getItem(keys.reports) || '[]'));
+        alert(
+          `合并完成！\n` +
+          `新增批次：${stats.addedRecords} 条（跳过 ${stats.skippedRecords} 条重复）\n` +
+          `新增档案：${stats.addedArchives} 条（跳过 ${stats.skippedArchives} 条重复）\n` +
+          `新增异常：${stats.addedExceptions} 条\n` +
+          `新增报告：${stats.addedReports} 份（跳过 ${stats.skippedReports} 份重复）`
+        );
+      } else {
+        alert('合并失败');
+      }
+    }
+
+    setShowWsImportModal(false);
+    setWsImportData(null);
+    setWsImportFileName('');
+    setWsMergeAnalysis(null);
+  }
+
+  function cancelWsImport() {
+    setShowWsImportModal(false);
+    setWsImportData(null);
+    setWsImportFileName('');
+    setWsMergeAnalysis(null);
   }
 
   function addRecord(event) {
@@ -2779,6 +2852,245 @@ function App() {
               >
                 <CheckCircle2 size={18} />
                 {importMode === 'overwrite' ? '覆盖导入' : '追加导入'} {importValidation.filter(v => v.valid).length} 条
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showWsImportModal && (
+        <div className="overlay" onClick={cancelWsImport}>
+          <div className="import-panel ws-import-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="confirm-header">
+              <div className="confirm-title">
+                <FileJson size={18} />
+                <h2>工作区导入</h2>
+              </div>
+              <button type="button" className="close-btn" onClick={cancelWsImport}><X size={18} /></button>
+            </div>
+
+            <div className="ws-import-file-info">
+              <FileJson size={16} />
+              <span>{wsImportFileName}</span>
+            </div>
+
+            <div className="ws-import-mode-section">
+              <div className="import-mode-title">导入方式</div>
+              <div className="import-mode-options">
+                <label className={'import-mode-option' + (wsImportMode === 'new' ? ' active' : '')}>
+                  <input
+                    type="radio"
+                    name="wsImportMode"
+                    value="new"
+                    checked={wsImportMode === 'new'}
+                    onChange={() => handleWsImportModeChange('new')}
+                  />
+                  <span className="import-mode-radio" />
+                  <span className="import-mode-label">
+                    <Plus size={15} />
+                    作为新工作区导入
+                  </span>
+                  <span className="import-mode-desc">创建一个全新的工作区，导入所有数据，与当前工作区互不影响</span>
+                </label>
+                <label className={'import-mode-option' + (wsImportMode === 'merge' ? ' active' : '')}>
+                  <input
+                    type="radio"
+                    name="wsImportMode"
+                    value="merge"
+                    checked={wsImportMode === 'merge'}
+                    onChange={() => handleWsImportModeChange('merge')}
+                  />
+                  <span className="import-mode-radio" />
+                  <span className="import-mode-label">
+                    <Layers size={15} />
+                    合并到当前工作区
+                  </span>
+                  <span className="import-mode-desc">将导入的数据合并到当前工作区，自动识别重复项</span>
+                </label>
+              </div>
+            </div>
+
+            {wsImportMode === 'merge' && wsMergeAnalysis && (
+              <div className="ws-merge-analysis">
+                <div className="ws-merge-section-title">
+                  <ClipboardList size={16} />
+                  <span>合并预览</span>
+                </div>
+
+                <div className="ws-merge-stats-grid">
+                  <div className="ws-merge-stat-card">
+                    <div className="ws-merge-stat-icon batch-icon">
+                      <Truck size={18} />
+                    </div>
+                    <div className="ws-merge-stat-info">
+                      <div className="ws-merge-stat-label">运输批次</div>
+                      <div className="ws-merge-stat-values">
+                        <span className="stat-total">共 {wsMergeAnalysis.totals.records} 条</span>
+                        <span className="stat-new">新增 {wsMergeAnalysis.newItems.records.length} 条</span>
+                        <span className="stat-duplicate">重复 {wsMergeAnalysis.duplicates.records.length} 条</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="ws-merge-stat-card">
+                    <div className="ws-merge-stat-icon archive-icon">
+                      <FolderKanban size={18} />
+                    </div>
+                    <div className="ws-merge-stat-info">
+                      <div className="ws-merge-stat-label">车辆档案</div>
+                      <div className="ws-merge-stat-values">
+                        <span className="stat-total">共 {wsMergeAnalysis.totals.archives} 条</span>
+                        <span className="stat-new">新增 {wsMergeAnalysis.newItems.archives.length} 条</span>
+                        <span className="stat-duplicate">重复 {wsMergeAnalysis.duplicates.archives.length} 条</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="ws-merge-stat-card">
+                    <div className="ws-merge-stat-icon exception-icon">
+                      <AlertTriangle size={18} />
+                    </div>
+                    <div className="ws-merge-stat-info">
+                      <div className="ws-merge-stat-label">异常记录</div>
+                      <div className="ws-merge-stat-values">
+                        <span className="stat-total">共 {wsMergeAnalysis.totals.exceptions} 条</span>
+                        <span className="stat-orphan">
+                          {wsMergeAnalysis.orphans.exceptions.length > 0
+                            ? `孤立 ${wsMergeAnalysis.orphans.exceptions.length} 条`
+                            : '无孤立数据'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="ws-merge-stat-card">
+                    <div className="ws-merge-stat-icon report-icon">
+                      <FileText size={18} />
+                    </div>
+                    <div className="ws-merge-stat-info">
+                      <div className="ws-merge-stat-label">合规报告</div>
+                      <div className="ws-merge-stat-values">
+                        <span className="stat-total">共 {wsMergeAnalysis.totals.reports} 份</span>
+                        <span className="stat-new">新增 {wsMergeAnalysis.newItems.reports.length} 份</span>
+                        <span className="stat-duplicate">重复 {wsMergeAnalysis.duplicates.reports.length} 份</span>
+                        {wsMergeAnalysis.orphans.reports.length > 0 && (
+                          <span className="stat-orphan">孤立 {wsMergeAnalysis.orphans.reports.length} 份</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {(wsMergeAnalysis.duplicates.records.length > 0 ||
+                  wsMergeAnalysis.duplicates.archives.length > 0 ||
+                  wsMergeAnalysis.duplicates.reports.length > 0) && (
+                  <div className="ws-merge-options">
+                    <div className="ws-merge-options-title">
+                      <Settings size={16} />
+                      <span>重复项处理</span>
+                    </div>
+                    <div className="ws-merge-options-list">
+                      {wsMergeAnalysis.duplicates.records.length > 0 && (
+                        <label className="ws-merge-option-item">
+                          <input
+                            type="checkbox"
+                            checked={wsMergeOptions.skipDuplicateRecords}
+                            onChange={(e) => setWsMergeOptions({
+                              ...wsMergeOptions,
+                              skipDuplicateRecords: e.target.checked,
+                            })}
+                          />
+                          <span className="option-checkbox" />
+                          <span className="option-label">
+                            跳过重复批次（{wsMergeAnalysis.duplicates.records.length} 条）
+                          </span>
+                          <span className="option-desc">
+                            车牌+线路+货品+日期相同的批次，保留当前工作区的记录
+                          </span>
+                        </label>
+                      )}
+                      {wsMergeAnalysis.duplicates.archives.length > 0 && (
+                        <label className="ws-merge-option-item">
+                          <input
+                            type="checkbox"
+                            checked={wsMergeOptions.skipDuplicateArchives}
+                            onChange={(e) => setWsMergeOptions({
+                              ...wsMergeOptions,
+                              skipDuplicateArchives: e.target.checked,
+                            })}
+                          />
+                          <span className="option-checkbox" />
+                          <span className="option-label">
+                            跳过重复档案（{wsMergeAnalysis.duplicates.archives.length} 条）
+                          </span>
+                          <span className="option-desc">
+                            车牌相同的档案，保留当前工作区的记录
+                          </span>
+                        </label>
+                      )}
+                      {wsMergeAnalysis.duplicates.reports.length > 0 && (
+                        <label className="ws-merge-option-item">
+                          <input
+                            type="checkbox"
+                            checked={wsMergeOptions.skipDuplicateReports}
+                            onChange={(e) => setWsMergeOptions({
+                              ...wsMergeOptions,
+                              skipDuplicateReports: e.target.checked,
+                            })}
+                          />
+                          <span className="option-checkbox" />
+                          <span className="option-label">
+                            跳过重复报告（{wsMergeAnalysis.duplicates.reports.length} 份）
+                          </span>
+                          <span className="option-desc">
+                            同一批次同一时间生成的报告，保留当前工作区的记录
+                          </span>
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {(wsMergeAnalysis.orphans.exceptions.length > 0 || wsMergeAnalysis.orphans.reports.length > 0) && (
+                  <div className="ws-merge-options">
+                    <div className="ws-merge-options-title warning-title">
+                      <AlertTriangle size={16} />
+                      <span>孤立数据</span>
+                    </div>
+                    <p className="ws-merge-orphan-desc">
+                      检测到 {wsMergeAnalysis.orphans.exceptions.length + wsMergeAnalysis.orphans.reports.length} 条数据
+                      关联的批次在导入文件中不存在。
+                      孤立数据默认不会被导入，以避免出现指向不存在批次的记录。
+                    </p>
+                    <label className="ws-merge-option-item">
+                      <input
+                        type="checkbox"
+                        checked={wsMergeOptions.keepOrphans}
+                        onChange={(e) => setWsMergeOptions({
+                          ...wsMergeOptions,
+                          keepOrphans: e.target.checked,
+                        })}
+                      />
+                      <span className="option-checkbox" />
+                      <span className="option-label">仍然导入孤立数据</span>
+                      <span className="option-desc warning-desc">
+                        警告：导入后这些数据将无法关联到任何批次，可能导致数据不一致
+                      </span>
+                    </label>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="confirm-actions">
+              <button type="button" className="cancel-btn" onClick={cancelWsImport}>取消</button>
+              <button
+                type="button"
+                className="primary confirm-submit"
+                onClick={confirmWsImport}
+              >
+                <CheckCircle2 size={18} />
+                {wsImportMode === 'new' ? '创建新工作区' : '确认合并'}
               </button>
             </div>
           </div>
