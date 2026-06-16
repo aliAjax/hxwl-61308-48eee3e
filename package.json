@@ -2,8 +2,18 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 61308",
     "build": "tsc -b && vite build",
+    "build:check": "npm run build",
     "preview": "vite preview --host 0.0.0.0 --port 61308",
-    "test": "vitest run"
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
+    "test:smoke": "npm run build && node scripts/smoke-test.js",
+    "test:smoke:dev": "node scripts/smoke-test.js --dev",
+    "test:smoke:only": "node scripts/smoke-test.js",
+    "test:all": "npm run test && npm run test:smoke",
+    "ci": "npm run build && npm run test && npm run test:smoke:only"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
@@ -14,6 +24,9 @@
     "vite": "latest"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "jsdom": "^29.1.1",
     "vitest": "^4.1.9"
   }
 }
