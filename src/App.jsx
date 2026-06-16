@@ -202,9 +202,9 @@ function uid() {
 
 function withIds(items) {
   return items.map((item) => ({
+    ...item,
     id: item.id || uid(),
     timeline: item.timeline || [{ status: item.status, at: today, by: '系统' }],
-    ...item,
   }));
 }
 
@@ -689,12 +689,19 @@ function loadArchivesFor(keys) {
   const raw = localStorage.getItem(keys.archives);
   if (raw) {
     try {
-      return withIds(JSON.parse(raw));
+      const parsed = JSON.parse(raw);
+      const normalized = withIds(parsed);
+      if (JSON.stringify(normalized) !== JSON.stringify(parsed)) {
+        localStorage.setItem(keys.archives, JSON.stringify(normalized));
+      }
+      return normalized;
     } catch {
       return withIds(archiveConfig.seed);
     }
   }
-  return withIds(archiveConfig.seed);
+  const seeded = withIds(archiveConfig.seed);
+  localStorage.setItem(keys.archives, JSON.stringify(seeded));
+  return seeded;
 }
 
 function loadExceptionsFor(keys) {
