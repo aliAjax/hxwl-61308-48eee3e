@@ -15,6 +15,16 @@ import {
   tempLabel,
   isObjectReading,
   createReading,
+  hasHotTemp,
+  latestTemp,
+  getTrend,
+  downsample,
+  isExceptionResolved,
+  isExceptionOverdue,
+  getExceptionTimelineStatus,
+  formatDurationHours,
+  getExceptionHandlingDuration,
+  recordDateKey,
 } from './utils/reportUtils';
 import './App.css';
 
@@ -257,45 +267,6 @@ function hasUnprocessedException(batchId, exceptions) {
   return exceptions.some((ex) => ex.batchId === batchId && (ex.status === '待处理' || ex.status === '处理中'));
 }
 
-function isExceptionResolved(status) {
-  return status === '已解决' || status === '已关闭';
-}
-
-function getExceptionTimelineStatus(ex, now = new Date()) {
-  const resolved = isExceptionResolved(ex.status);
-  if (resolved) return { key: 'completed', label: '已完成', class: 'timing-completed' };
-  if (!ex.requiredBy) return { key: 'none', label: '', class: '' };
-  const deadline = new Date(ex.requiredBy);
-  const diffMs = deadline - now;
-  const diffHours = diffMs / (1000 * 60 * 60);
-  if (diffMs < 0) return { key: 'overdue', label: '逾期', class: 'timing-overdue', hoursOverdue: Math.abs(diffHours) };
-  if (diffHours <= 24) return { key: 'urgent', label: '临期', class: 'timing-urgent', hoursLeft: diffHours };
-  return { key: 'normal', label: '正常', class: 'timing-normal', hoursLeft: diffHours };
-}
-
-function isExceptionOverdue(ex, now = new Date()) {
-  return getExceptionTimelineStatus(ex, now).key === 'overdue';
-}
-
-function formatDurationHours(hours) {
-  if (!Number.isFinite(hours)) return '-';
-  const h = Math.floor(hours);
-  const m = Math.round((hours - h) * 60);
-  if (h >= 24) {
-    const d = Math.floor(h / 24);
-    const rh = h % 24;
-    return `${d}天${rh}小时${m}分`;
-  }
-  return `${h}小时${m}分`;
-}
-
-function getExceptionHandlingDuration(ex, now = new Date()) {
-  if (!ex.createdAt) return null;
-  const start = new Date(ex.createdAt);
-  const end = isExceptionResolved(ex.status) && ex.updatedAt ? new Date(ex.updatedAt) : now;
-  return (end - start) / (1000 * 60 * 60);
-}
-
 function avg(numbers) {
   const valid = numbers.filter((value) => Number.isFinite(value));
   if (!valid.length) return 0;
@@ -314,25 +285,6 @@ function inNextDays(dateText, days) {
   return diff >= 0 && diff <= days;
 }
 
-function latestTemp(item) {
-  const numbers = tempsToNumbers(item.temps);
-  if (numbers.length > 0) return numbers[numbers.length - 1];
-  const fallback = Number(item.temperature);
-  return Number.isFinite(fallback) ? fallback : 0;
-}
-
-function hasHotTemp(item, threshold = 2) {
-  const numbers = tempsToNumbers(item.temps);
-  if (numbers.length > 0) return numbers.some((value) => value > threshold);
-  const fallback = Number(item.temperature);
-  return Number.isFinite(fallback) && fallback > threshold;
-}
-
-function recordDateKey(item) {
-  const dateText = item.eta || item.createdAt || item.arrivedAt || item.updatedAt || '';
-  return String(dateText).slice(0, 10);
-}
-
 function priorityRank(value) {
   return { 危急: 0, 加急: 1, 常规: 2, 高: 0, 中: 1, 低: 2 }[value] ?? 9;
 }
@@ -345,84 +297,6 @@ function hasOverlap(target, records) {
 function statusClass(status) {
   const index = appConfig.statuses.indexOf(status);
   return ['status-a', 'status-b', 'status-c', 'status-d'][index] || 'status-a';
-}
-
-function downsample(data, maxPoints, hotThreshold = 2) {
-  if (data.length <= maxPoints) return data.map((v, i) => ({ idx: i, value: v }));
-  const HOT_MAX_RATIO = 0.35;
-  const maxHotPoints = Math.max(4, Math.floor(maxPoints * HOT_MAX_RATIO));
-  const minIndexGap = Math.max(2, Math.floor(data.length / maxPoints * 0.8));
-  const allHotPoints = [];
-  for (let i = 0; i < data.length; i++) {
-    if (data[i] > hotThreshold) allHotPoints.push({ idx: i, value: data[i] });
-  }
-  allHotPoints.sort((a, b) => b.value - a.value);
-  const hotKept = [];
-  for (const p of allHotPoints) {
-    if (hotKept.length >= maxHotPoints) break;
-    let overlap = false;
-    for (const k of hotKept) {
-      if (Math.abs(k.idx - p.idx) < minIndexGap) { overlap = true; break; }
-    }
-    if (!overlap) hotKept.push(p);
-  }
-  hotKept.sort((a, b) => a.idx - b.idx);
-  const hotIdxSet = new Set(hotKept.map(p => p.idx));
-  const remaining = maxPoints - hotKept.length;
-  const bucketSize = data.length / remaining;
-  const picked = [];
-  for (let i = 0; i < remaining; i++) {
-    const start = Math.floor(i * bucketSize);
-    const end = Math.min(Math.floor((i + 1) * bucketSize), data.length);
-    if (start >= end) continue;
-    const bucketData = [];
-    for (let j = start; j < end; j++) bucketData.push({ idx: j, value: data[j] });
-    let best = null, bestScore = -Infinity;
-    const bucketAvg = bucketData.reduce((s, p) => s + p.value, 0) / bucketData.length;
-    for (const p of bucketData) {
-      if (hotIdxSet.has(p.idx)) continue;
-      const distFromAvg = Math.abs(p.value - bucketAvg);
-      const edgeBonus = (p.idx === start || p.idx === end - 1) ? 0.5 : 0;
-      const score = distFromAvg + edgeBonus;
-      if (score > bestScore) { bestScore = score; best = p; }
-    }
-    if (best) picked.push(best);
-  }
-  let result = [...hotKept, ...picked];
-  result.sort((a, b) => a.idx - b.idx);
-  const finalResult = [];
-  for (let i = 0; i < result.length; i++) {
-    const p = result[i];
-    const isHot = hotIdxSet.has(p.idx);
-    let conflict = -1;
-    for (let k = finalResult.length - 1; k >= 0; k--) {
-      if (Math.abs(finalResult[k].idx - p.idx) < minIndexGap) {
-        conflict = k;
-        break;
-      }
-      if (p.idx - finalResult[k].idx > minIndexGap * 3) break;
-    }
-    if (conflict >= 0) {
-      if (isHot && !hotIdxSet.has(finalResult[conflict].idx)) {
-        finalResult[conflict] = p;
-      }
-      continue;
-    }
-    finalResult.push(p);
-  }
-  return finalResult;
-}
-
-function getTrend(temps) {
-  const numbers = tempsToNumbers(temps);
-  if (numbers.length < 2) return { type: 'stable', label: '数据不足', diff: 0 };
-  const recent = numbers.slice(-Math.min(5, numbers.length));
-  const first = recent[0];
-  const last = recent[recent.length - 1];
-  const diff = last - first;
-  if (Math.abs(diff) < 0.3) return { type: 'stable', label: '基本稳定', diff };
-  if (diff > 0) return { type: 'up', label: '呈上升趋势', diff };
-  return { type: 'down', label: '呈下降趋势', diff };
 }
 
 function TemperatureCurveDetail({ temps, hotThreshold = 2 }) {

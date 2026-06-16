@@ -16,114 +16,19 @@ import {
   CalendarDays,
   BarChart3,
 } from 'lucide-react';
-import { computeTemperatureStats, formatDateTime, DEFAULT_HOT_THRESHOLD, tempsToNumbers } from '../utils/reportUtils';
-
-function hasHotTemp(item, threshold) {
-  const numbers = tempsToNumbers(item.temps);
-  if (numbers.length > 0) return numbers.some((value) => value > threshold);
-  const fallback = Number(item.temperature);
-  return Number.isFinite(fallback) && fallback > threshold;
-}
-
-function isExceptionResolved(status) {
-  return status === '已解决' || status === '已关闭';
-}
-
-function isExceptionOverdue(ex, now = new Date()) {
-  if (isExceptionResolved(ex.status)) return false;
-  if (!ex.requiredBy) return false;
-  return new Date(ex.requiredBy) < now;
-}
-
-function latestTemp(item) {
-  const numbers = tempsToNumbers(item.temps);
-  if (numbers.length > 0) return numbers[numbers.length - 1];
-  const fallback = Number(item.temperature);
-  return Number.isFinite(fallback) ? fallback : 0;
-}
-
-function dateKeyOf(item) {
-  const dateText = item.eta || item.createdAt || item.arrivedAt || item.updatedAt || '';
-  return String(dateText).slice(0, 10);
-}
-
-function getTrend(temps) {
-  const numbers = tempsToNumbers(temps);
-  if (numbers.length < 2) return { type: 'stable', label: '数据不足', diff: 0 };
-  const recent = numbers.slice(-Math.min(5, numbers.length));
-  const first = recent[0];
-  const last = recent[recent.length - 1];
-  const diff = last - first;
-  if (Math.abs(diff) < 0.3) return { type: 'stable', label: '基本稳定', diff };
-  if (diff > 0) return { type: 'up', label: '呈上升趋势', diff };
-  return { type: 'down', label: '呈下降趋势', diff };
-}
-
-function downsample(data, maxPoints, hotThreshold) {
-  if (data.length <= maxPoints) return data.map((v, i) => ({ idx: i, value: v }));
-  const HOT_MAX_RATIO = 0.35;
-  const maxHotPoints = Math.max(4, Math.floor(maxPoints * HOT_MAX_RATIO));
-  const minIndexGap = Math.max(2, Math.floor(data.length / maxPoints * 0.8));
-  const allHotPoints = [];
-  for (let i = 0; i < data.length; i++) {
-    if (data[i] > hotThreshold) allHotPoints.push({ idx: i, value: data[i] });
-  }
-  allHotPoints.sort((a, b) => b.value - a.value);
-  const hotKept = [];
-  for (const p of allHotPoints) {
-    if (hotKept.length >= maxHotPoints) break;
-    let overlap = false;
-    for (const k of hotKept) {
-      if (Math.abs(k.idx - p.idx) < minIndexGap) { overlap = true; break; }
-    }
-    if (!overlap) hotKept.push(p);
-  }
-  hotKept.sort((a, b) => a.idx - b.idx);
-  const hotIdxSet = new Set(hotKept.map(p => p.idx));
-  const remaining = maxPoints - hotKept.length;
-  const bucketSize = data.length / remaining;
-  const picked = [];
-  for (let i = 0; i < remaining; i++) {
-    const start = Math.floor(i * bucketSize);
-    const end = Math.min(Math.floor((i + 1) * bucketSize), data.length);
-    if (start >= end) continue;
-    const bucketData = [];
-    for (let j = start; j < end; j++) bucketData.push({ idx: j, value: data[j] });
-    let best = null, bestScore = -Infinity;
-    const bucketAvg = bucketData.reduce((s, p) => s + p.value, 0) / bucketData.length;
-    for (const p of bucketData) {
-      if (hotIdxSet.has(p.idx)) continue;
-      const distFromAvg = Math.abs(p.value - bucketAvg);
-      const edgeBonus = (p.idx === start || p.idx === end - 1) ? 0.5 : 0;
-      const score = distFromAvg + edgeBonus;
-      if (score > bestScore) { bestScore = score; best = p; }
-    }
-    if (best) picked.push(best);
-  }
-  let result = [...hotKept, ...picked];
-  result.sort((a, b) => a.idx - b.idx);
-  const finalResult = [];
-  for (let i = 0; i < result.length; i++) {
-    const p = result[i];
-    const isHot = hotIdxSet.has(p.idx);
-    let conflict = -1;
-    for (let k = finalResult.length - 1; k >= 0; k--) {
-      if (Math.abs(finalResult[k].idx - p.idx) < minIndexGap) {
-        conflict = k;
-        break;
-      }
-      if (p.idx - finalResult[k].idx > minIndexGap * 3) break;
-    }
-    if (conflict >= 0) {
-      if (isHot && !hotIdxSet.has(finalResult[conflict].idx)) {
-        finalResult[conflict] = p;
-      }
-      continue;
-    }
-    finalResult.push(p);
-  }
-  return finalResult;
-}
+import {
+  computeTemperatureStats,
+  formatDateTime,
+  DEFAULT_HOT_THRESHOLD,
+  tempsToNumbers,
+  hasHotTemp,
+  latestTemp,
+  getTrend,
+  downsample,
+  isExceptionResolved,
+  isExceptionOverdue,
+  recordDateKey,
+} from '../utils/reportUtils';
 
 function MiniTempChart({ temps, hotThreshold, width = 200, height = 60 }) {
   const numbers = useMemo(() => tempsToNumbers(temps), [temps]);
@@ -244,7 +149,7 @@ export default function ColdChainDashboard({
   const today = new Date().toISOString().slice(0, 10);
 
   const dashboardData = useMemo(() => {
-    const todayRecords = records.filter(r => dateKeyOf(r) === today);
+    const todayRecords = records.filter(r => recordDateKey(r) === today);
     const totalBatches = todayRecords.length;
     const inTransit = todayRecords.filter(r => r.status === '运输中').length;
     const abnormalBatches = todayRecords.filter(r => r.status === '异常' || hasHotTemp(r, hotThreshold)).length;
@@ -312,7 +217,7 @@ export default function ColdChainDashboard({
 
   const tempTrend = useMemo(() => {
     const recentRecords = records
-      .filter(r => dateKeyOf(r) === today)
+      .filter(r => recordDateKey(r) === today)
       .filter(r => r.temps && r.temps.length >= 2)
       .slice(0, 10);
     if (recentRecords.length === 0) return { type: 'stable', label: '数据不足' };
